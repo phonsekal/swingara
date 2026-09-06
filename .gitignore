@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+.vercel
+.pytest_cache/
+automated_trading_plan.txt
+.vercel
+.env*

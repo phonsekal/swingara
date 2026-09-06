@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IDX Swing Scanner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"] } } },
+    };
+  </script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
+  <div class="mx-auto max-w-7xl px-4 pb-16">
+    <!-- Header -->
+    <header class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 py-5">
+      <div>
+        <h1 class="text-xl font-bold tracking-tight">
+          IDX Swing Scanner
+          <span class="ml-2 rounded bg-cyan-500/10 px-2 py-0.5 text-xs font-semibold text-cyan-300">v1.2</span>
+        </h1>
+        <p class="mt-1 text-sm text-slate-400">
+          Teknikal (A) + Bandarmologi (B, filter broker opsional) + Anti-Retail (C) — arjum.com &amp; yfinance
+        </p>
+      </div>
+      <div class="flex items-center gap-2 text-xs" id="status-pills"></div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="mt-6 flex flex-wrap gap-2 text-sm">
+      <button data-tab="scanner" class="tab-btn rounded-lg bg-cyan-500/15 px-4 py-2 font-semibold text-cyan-300">🔍 Scanner</button>
+      <button data-tab="broker" class="tab-btn rounded-lg px-4 py-2 font-semibold text-slate-400 hover:text-slate-200">🏦 Broker Flow</button>
+      <button data-tab="backtest" class="tab-btn rounded-lg px-4 py-2 font-semibold text-slate-400 hover:text-slate-200">📈 Backtest</button>
+      <button data-tab="alerts" class="tab-btn rounded-lg px-4 py-2 font-semibold text-slate-400 hover:text-slate-200">🔔 Alerts</button>
+    </nav>
+
+    <!-- ============================ SCANNER ============================ -->
+    <section id="tab-scanner" class="tab-panel mt-6">
+      <div class="grid gap-4 lg:grid-cols-3">
+        <!-- Controls -->
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 lg:col-span-1">
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold text-slate-200">Pengaturan Scan</h2>
+            <button id="sc-reset" class="rounded px-2 py-1 text-xs text-cyan-400 hover:bg-cyan-500/10" title="Reset ke nilai default optimal">↺ Reset</button>
+          </div>
+
+          <label class="mt-1 block text-xs text-slate-400">Kelompok Saham</label>
+          <select id="sc-universe" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500"></select>
+          <p id="sc-universe-note" class="mt-1 text-[11px] text-slate-500"></p>
+
+          <label class="mt-3 block text-xs text-slate-400">Tickers Manual <span class="text-slate-500">(dipakai jika pilih "Manual")</span></label>
+          <input id="sc-tickers" value="BBRI,BMRI,TINS,BUMI,HRUM,BBCA,ASII,TLKM,ANTM,ADRO"
+                 class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none focus:border-cyan-500" />
+
+          <label class="mt-3 block text-xs text-slate-400">Filter Broker <span class="text-cyan-400">(opsional)</span></label>
+          <input id="sc-brokers" placeholder="kosong = semua institusi | contoh: SS"
+                 class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none focus:border-cyan-500" />
+          <div class="mt-2 flex flex-wrap gap-1 text-xs">
+            <span class="text-slate-500">cepat:</span>
+            <button class="chip" data-broker="SS">SS</button>
+            <button class="chip" data-broker="YP">YP</button>
+            <button class="chip" data-broker="CC">CC</button>
+            <button class="chip" data-broker="NI">NI</button>
+            <button class="chip" data-broker="BK">BK</button>
+            <button class="chip" data-broker="ZP">ZP</button>
+          </div>
+
+          <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div><label class="block text-xs text-slate-400">Lookback (hari)</label>
+              <input id="sc-lookback" type="number" value="15" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Top N Broker</label>
+              <input id="sc-topn" type="number" value="3" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Likuiditas (Miliar)</label>
+              <input id="sc-liq" type="number" value="5" step="0.5" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">RSI Max (0 = off)</label>
+              <input id="sc-rsi" type="number" value="60" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Pullback Min % (0 = off)</label>
+              <input id="sc-pull" type="number" value="3" step="0.5" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Harga Min (Rp)</label>
+              <input id="sc-minprice" type="number" value="100" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Anchor % (chase guard)</label>
+              <input id="sc-anchor" type="number" value="3" step="0.5" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Retail Brokers</label>
+              <input id="sc-retail" value="YP,CC,NI" class="param-input" /></div>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <label class="flex items-center gap-2 text-slate-300">
+              <input id="sc-season" type="checkbox" class="h-4 w-4 rounded accent-cyan-500" />
+              Analisis musiman (bulan naik/turun, riwayat multi-tahun)
+            </label>
+            <label class="flex items-center gap-2 text-slate-300">
+              <input id="sc-news" type="checkbox" class="h-4 w-4 rounded accent-cyan-500" />
+              Berita &amp; rencana corp action
+            </label>
+          </div>
+
+          <button id="sc-run" class="mt-5 w-full rounded-lg bg-cyan-500 px-4 py-2.5 font-bold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-50">
+            ▶ Jalankan Scan
+          </button>
+          <p id="sc-err" class="mt-2 hidden rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300"></p>
+        </div>
+
+        <!-- Results -->
+        <div class="lg:col-span-2">
+          <!-- Group trend (realtime) -->
+          <div id="sc-trend" class="mb-4 hidden rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h3 class="font-semibold text-slate-200" id="sc-trend-title">📊 Trend Kelompok</h3>
+              <span id="sc-trend-progress" class="font-mono text-xs text-cyan-300">0/0</span>
+            </div>
+            <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+              <div id="sc-trend-bar" class="h-full rounded-full bg-cyan-500 transition-all" style="width:0%"></div>
+            </div>
+            <div id="sc-trend-chips" class="mt-3 flex flex-wrap gap-2 text-xs"></div>
+            <div id="sc-trend-stats" class="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"></div>
+          </div>
+
+          <div id="sc-summary" class="mb-4 flex flex-wrap items-center gap-2"></div>
+          <div id="sc-results" class="space-y-4"></div>
+          <div id="sc-empty" class="rounded-xl border border-dashed border-slate-700 p-10 text-center text-sm text-slate-500">
+            Hasil scan akan tampil realtime di sini.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ BROKER ============================ -->
+    <section id="tab-broker" class="tab-panel mt-6 hidden">
+      <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div class="flex flex-wrap items-end gap-3">
+          <div>
+            <label class="block text-xs text-slate-400">Ticker</label>
+            <input id="br-ticker" value="BBRI" class="mt-1 w-32 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none focus:border-cyan-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400">Filter Broker (opsional)</label>
+            <input id="br-filter" placeholder="mis. SS" class="mt-1 w-32 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none focus:border-cyan-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400">Top N</label>
+            <input id="br-topn" type="number" value="15" class="mt-1 w-24 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none focus:border-cyan-500" />
+          </div>
+          <button id="br-run" class="rounded-lg bg-cyan-500 px-4 py-2 font-bold text-slate-950 hover:bg-cyan-400">Lihat Flow</button>
+        </div>
+        <p id="br-meta" class="mt-3 text-xs text-slate-500"></p>
+        <div id="br-table-wrap" class="mt-3 overflow-x-auto"></div>
+        <p id="br-err" class="mt-2 hidden rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300"></p>
+      </div>
+    </section>
+
+    <!-- ============================ BACKTEST ============================ -->
+    <section id="tab-backtest" class="tab-panel mt-6 hidden">
+      <div class="grid gap-4 lg:grid-cols-3">
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold text-slate-200">Konfigurasi Backtest</h2>
+            <button id="bt-reset" class="rounded px-2 py-1 text-xs text-cyan-400 hover:bg-cyan-500/10">↺ Reset</button>
+          </div>
+          <label class="mt-1 block text-xs text-slate-400">Tickers</label>
+          <input id="bt-tickers" value="TINS,ANTM" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none focus:border-cyan-500" />
+          <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div><label class="block text-xs text-slate-400">Lookback (hari)</label>
+              <input id="bt-lookback" type="number" value="15" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">RSI Max</label>
+              <input id="bt-rsi" type="number" value="60" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">TP1 %</label>
+              <input id="bt-tp1" type="number" value="10" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">TP2 %</label>
+              <input id="bt-tp2" type="number" value="20" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">SL %</label>
+              <input id="bt-sl" type="number" value="6" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Max Hold (hari)</label>
+              <input id="bt-hold" type="number" value="30" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Modal Awal (Juta)</label>
+              <input id="bt-capital" type="number" value="100" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Fee % (per sisi)</label>
+              <input id="bt-fee" type="number" value="0.25" step="0.05" class="param-input" /></div>
+          </div>
+          <button id="bt-run" class="mt-5 w-full rounded-lg bg-cyan-500 px-4 py-2.5 font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50">
+            📈 Jalankan Backtest
+          </button>
+          <p class="mt-2 text-xs text-slate-500">Menggunakan yfinance — tidak memakai kuota arjum.</p>
+          <p id="bt-err" class="mt-2 hidden rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300"></p>
+        </div>
+        <div id="bt-results" class="space-y-6 lg:col-span-2"></div>
+      </div>
+    </section>
+
+    <!-- ============================ ALERTS ============================ -->
+    <section id="tab-alerts" class="tab-panel mt-6 hidden">
+      <div class="grid gap-4 lg:grid-cols-2">
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <h2 class="font-semibold text-slate-200">Alert Terjadwal</h2>
+          <p class="mt-2 text-sm text-slate-400">
+            Vercel cron menjalankan scan otomatis tiap hari kerja pukul
+            <span class="font-mono text-cyan-300">16:30 WIB</span> (09:30 UTC) lalu mengirim
+            ringkasan sinyal ke Telegram / webhook via env:
+          </p>
+          <ul class="mt-3 space-y-1 font-mono text-xs text-slate-400">
+            <li>TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID</li>
+            <li>ALERT_WEBHOOK_URL</li>
+            <li>ALERT_WATCHLIST, ALERT_BROKERS, ALERT_LOOKBACK_DAYS</li>
+            <li>ALERT_SECRET (opsional, header <span class="text-slate-200">x-alert-secret</span>)</li>
+          </ul>
+          <button id="al-run" class="mt-4 rounded-lg bg-cyan-500 px-4 py-2 font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50">
+            ▶ Jalankan Alert Sekarang
+          </button>
+          <div id="al-status" class="mt-3 space-y-1 text-sm"></div>
+          <p id="al-err" class="mt-2 hidden rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300"></p>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <h2 class="font-semibold text-slate-200">Pratinjau Pesan Alert</h2>
+          <pre id="al-preview" class="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-300"></pre>
+        </div>
+      </div>
+    </section>
+
+    <footer class="mt-10 border-t border-slate-800 pt-4 text-center text-xs text-slate-600">
+      IDX Swing Scanner — strategi di <span class="font-mono">perintah.md</span> · API docs <a class="text-cyan-500 hover:underline" href="/docs">/docs</a>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
