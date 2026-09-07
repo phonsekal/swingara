@@ -40,6 +40,16 @@ class ScanParams(BaseModel):
     touch_window_days: int = 5  # multi-bar confirmation: price touched BB lower within this window
     rsi_max: float = 60.0  # 0 disables
     pullback_pct: float = 3.0  # 0 disables
+    # --- Layer A method override ---
+    # When layer_a_method is set, the default scan can load one of the named
+    # offline method definitions from scripts/scan_all_codes_variants.py so the
+    # live API default matches the chosen ``best-setup`` philosophy instead of
+    # the old single combined gate.
+    layer_a_method: Optional[str] = None
+    # --- Lower-band proximity method cap ---
+    # Used by the default method-based scan path to express different swing
+    # philosophies without rewriting the whole Layer A gate each time.
+    band_gap_max_pct: float = 3.0
 
     # --- Layer C ---
     retail_brokers: list[str] = Field(default_factory=lambda: ["YP", "CC", "NI"])

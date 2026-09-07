@@ -182,6 +182,19 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
     pull = ta.pullback_pct(close, high, 20)
     checks["pullback"] = bool(params.pullback_pct <= 0 or pull >= params.pullback_pct)
 
+    # --- Lower-band proximity method cap ---
+    # This turns the old single combined gate into the named-method philosophy
+    # used by scripts/scan_all_codes_variants.py **only when the caller opts
+    # into band_gap_max_pct > 0**. The live default scan sets this when a
+    # named method is used; the generic API still treats 0 as "no extra cap".
+    band_gap = None
+    if params.band_gap_max_pct > 0 and lb and lb > 0:
+        band_gap = (price - lb) / lb * 100.0
+        checks["band_gap_ok"] = bool(band_gap <= params.band_gap_max_pct)
+    else:
+        checks["band_gap_ok"] = True
+        band_gap = band_gap
+
     passed = all(checks.values())
     return passed, {
         "passed": passed,
@@ -197,6 +210,8 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
         "rsi14": round(r, 1) if r == r else None,
         "avg_20d_value_idr": round(liq, 0) if liq == liq else None,
         "pullback_from_20d_high_pct": round(pull, 2) if pull == pull else None,
+        "band_gap_pct": round(band_gap, 2) if band_gap is not None and band_gap == band_gap else None,
+        "band_gap_max_pct": params.band_gap_max_pct if params.band_gap_max_pct > 0 else None,
     }
 
 

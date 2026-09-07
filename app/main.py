@@ -21,9 +21,11 @@ from .backtest import backtest
 from .budget import arjum_budget
 from .config import settings
 from .models import BacktestParams, ScanParams, ScanResponse, StockVerdict
+from .resolve_method import default_method_params, list_methods
 from .scanner import analyze_stock
 from .resolve_tickers import resolve_tickers
 from .universe import SECTORS, all_mapped_tickers, fetch_universe, group_of, sector_tickers, all_mapped_tickers_by_market_cap_desc
+from .resolve_method import default_method_params
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -151,7 +153,7 @@ async def _resolve_tickers(
     return await resolve_tickers(params, client)
 
 
-async def _run_scan(request: Request, params: ScanParams) -> ScanResponse:
+async def _run_scan(request: Request, params: ScanParams, *, use_default_method: bool = False) -> ScanResponse:
     client = _client_for(request)
     try:
         tickers, group = await _resolve_tickers(params, client)
@@ -161,6 +163,13 @@ async def _run_scan(request: Request, params: ScanParams) -> ScanResponse:
     if not tickers:
         await client.close()
         raise HTTPException(status_code=400, detail="tickers kosong dan tidak ada universe terpilih")
+
+    if use_default_method and params.layer_a_method:
+        mp, desc = default_method_params(method=params.layer_a_method)
+        if mp is None:
+            await client.close()
+            raise HTTPException(status_code=400, detail=desc or "method tidak diketahui")
+        params = mp
 
     client_key = _resolve_key(request)
     sem = asyncio.Semaphore(settings.max_concurrency)
@@ -196,6 +205,7 @@ async def _run_scan(request: Request, params: ScanParams) -> ScanResponse:
         warnings=warnings,
         arjum_usage=arjum_budget.usage(),
         group=group,
+        method=params.layer_a_method if params.layer_a_method else None,
     )
 
 
@@ -223,6 +233,7 @@ async def scan_get(
     anchor_mode: str = "vwap",
     include_seasonality: bool = False,
     include_news: bool = False,
+    layer_a_method: Optional[str] = Query(None, description="Named Layer A method: strict_strong_buy | buy_quality_tighter | band_proximity_main | wide_candidate_pool"),
 ):
     params = ScanParams(
         tickers=[t for t in tickers.split(",") if t.strip()] if tickers else [],
@@ -246,8 +257,9 @@ async def scan_get(
         anchor_mode=anchor_mode,
         include_seasonality=include_seasonality,
         include_news=include_news,
+        layer_a_method=layer_a_method,
     )
-    return await _run_scan(request, params)
+    return await _run_scan(request, params, use_default_method=True)
 
 
 @app.get("/scan/sector-tickers")

@@ -66,7 +66,7 @@ def _candles() -> list[dict]:
             "date": "last",
             "open": 920.0,
             "high": 957.0,
-            "low": 900.0,
+            "low": 850.0,
             "close": 950.0,
             "volume": 55_000_000,
         }
@@ -114,6 +114,7 @@ def _params(**overrides) -> ScanParams:
         min_history_days=60,
         retail_brokers=["YP", "CC", "NI"],
         data_source="arjum",  # use FakeArjum for history (default is yfinance-first)
+        band_gap_max_pct=0.0,  # generic API path: no extra band-gap cap
     )
     base.update(overrides)
     return ScanParams(**base)
