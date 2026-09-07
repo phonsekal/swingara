@@ -259,8 +259,14 @@ async def scan_get(
         include_seasonality=include_seasonality,
         include_news=include_news,
         layer_a_method=layer_a_method,
-        band_gap_max_pct=3.0 if layer_a_method else 0.0,
+        band_gap_max_pct=0.0,
     )
+    if not layer_a_method and universe in ("mapped", "watchlist"):
+        params.layer_a_method = "band_proximity_main"
+    if params.layer_a_method:
+        params.band_gap_max_pct = 3.0
+    else:
+        params.band_gap_max_pct = 0.0
     return await _run_scan(request, params, use_default_method=True)
 
 
