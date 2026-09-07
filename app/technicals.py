@@ -85,8 +85,13 @@ def rsi(close: np.ndarray, period: int = 14) -> np.ndarray:
 
     out[period] = _value(avg_gain, avg_loss)
     for i in range(period, n - 1):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        g = float(gains[i])
+        l = float(losses[i])
+        if not (np.isfinite(g) and np.isfinite(l)):
+            out[i + 1] = np.nan
+            continue
+        avg_gain = (avg_gain * (period - 1) + g) / period
+        avg_loss = (avg_loss * (period - 1) + l) / period
         out[i + 1] = _value(avg_gain, avg_loss)
     return out
 
