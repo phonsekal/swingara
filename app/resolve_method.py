@@ -121,3 +121,7 @@ def list_methods() -> dict[str, dict]:
         }
         for name, m in SUPPORTED_METHODS.items()
     }
+
+
+def is_valid_method(name: Optional[str]) -> bool:
+    return bool(name) and name in SUPPORTED_METHODS
