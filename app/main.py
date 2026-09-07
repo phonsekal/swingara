@@ -25,12 +25,19 @@ from .resolve_method import default_method_params, list_methods
 from .scanner import analyze_stock
 from .resolve_tickers import resolve_tickers
 from .universe import SECTORS, all_mapped_tickers, fetch_universe, group_of, sector_tickers, all_mapped_tickers_by_market_cap_desc
-from .resolve_method import default_method_params
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+
+@app.get("/api/methods")
+def methods():
+    return {
+        "methods": list_methods(),
+        "note": "These are the named Layer A methods exposed by the default scan path. Each method is a technical-screen philosophy, not a future win-rate guarantee.",
+    }
 
 
 @asynccontextmanager
