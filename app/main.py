@@ -32,14 +32,6 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
-@app.get("/api/methods")
-def methods():
-    return {
-        "methods": list_methods(),
-        "note": "These are the named Layer A methods exposed by the default scan path. Each method is a technical-screen philosophy, not a future win-rate guarantee.",
-    }
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.arjum = ArjumClient(
@@ -106,6 +98,8 @@ def info():
             "GET/POST /scan",
             "POST /scan/stream (NDJSON realtime)",
             "GET /api/universe",
+            "GET /api/methods",
+            "GET /api/methods/default",
             "GET /stocks/{code}",
             "GET /brokers/{code}",
             "GET /broker-accumulation/{code}",
@@ -289,7 +283,7 @@ async def scan_get_sector_tickers(
 
 @app.post("/scan")
 async def scan_post(request: Request, params: ScanParams):
-    return await _run_scan(request, params)
+    return await _run_scan(request, params, use_default_method=True)
 
 
 @app.get("/scan/stream/sector-tickers")
@@ -596,7 +590,7 @@ async def run_alerts(request: Request):
     lookback = int(os.getenv("ALERT_LOOKBACK_DAYS", "15"))
 
     params = ScanParams(tickers=watchlist, brokers=broker_filter, lookback_days=lookback)
-    resp = await _run_scan(request, params)
+    resp = await _run_scan(request, params, use_default_method=True)
 
     digest = format_alerts(resp.results, lookback)
     sent: dict = {}
@@ -610,4 +604,21 @@ async def run_alerts(request: Request):
         "arjum_usage": resp.arjum_usage,
         "sent": sent,
         "alert_preview": digest,
+    }
+
+
+@app.get("/api/methods")
+def methods():
+    return {
+        "methods": list_methods(),
+        "note": "These are the named Layer A methods exposed by the default scan path. Each method is a technical-screen philosophy, not a future win-rate guarantee.",
+    }
+
+
+@app.get("/api/methods/default")
+def methods_default(request: Request):
+    params = ScanParams(layer_a_method=None)
+    return {
+        "currently_no_default_method_assigned": True,
+        "note": "The live default scan does not force a single method on every request yet. Use GET /scan?layer_a_method=band_proximity_main to pick one.",
     }

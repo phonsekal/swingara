@@ -106,4 +106,18 @@ def default_method_params(*, method: Optional[str] = None) -> tuple[Optional[Sca
 
 
 def list_methods() -> dict[str, dict]:
-    return {name: {"description": m["description"]} for name, m in SUPPORTED_METHODS.items()}
+    return {
+        name: {
+            "description": m["description"],
+            "params": {
+                "rsi_max": m["rsi_max"],
+                "pullback_pct": m["pullback_pct"],
+                "band_gap_max_pct": m["band_gap_max_pct"],
+                "min_price": m["min_price"],
+                "min_liquidity_idr": m["min_liquidity_idr"],
+                "touch_tolerance_pct": m["touch_tolerance_pct"],
+                "touch_window_days": m["touch_window_days"],
+            },
+        }
+        for name, m in SUPPORTED_METHODS.items()
+    }
