@@ -67,9 +67,11 @@ You are an expert Quantitative Financial Engineer specializing in the Indonesian
 
 For every asset where Layer A passes:
 - **Target entry range:** from the current close down to the Lower Bollinger Band line.
-- **Take Profit 1:** `+tp1_pct`% (default +10%) for partial 50% lot locking.
-- **Take Profit 2:** `+tp2_pct`% (default +20%) for full position liquidation.
-- **Stop Loss:** `max(close * (1 - sl_pct/100), close - atr_stop_mult * ATR)` — the tighter of the fixed -6% capital protection and the volatility-adjusted (2×ATR) stop; structural exit note if close breaks the Lower Band.
+- **Take Profit 1:** `+tp1_pct`% (default +5%) for partial 50% lot locking.
+- **Take Profit 2:** `+tp2_pct`% (default +10%) for full position liquidation.
+- **Stop Loss:** `max(close * (1 - sl_pct/100), close - atr_stop_mult * ATR)` — the tighter of the fixed -5% capital protection and the volatility-adjusted (2×ATR) stop; structural exit note if close breaks the Lower Band.
+
+**Backtest-driven defaults (5 tahun, 43 saham likuid — scripts/analyze_backtest.py):** the original +10/+20/−6 targets lose money (PF 0.79, win 33.6%). TP +5/+10 with SL −5% and ≤15-day holds turns the same signals positive (PF 1.11, win 48.9%, maxDD 5.6%) — these are the new defaults. Layer B/C (broker/retail) can't be backtested (no broker history) and act as a live confirmation filter on top.
 - **Verified buy-average anchor** of the matched broker (VWAP proxy, clearly labeled).
 - **Suggested position sizing:** `risk_per_trade_pct` of `portfolio_idr` divided by risk-per-share → lots of 100 shares, capped by portfolio capacity.
 

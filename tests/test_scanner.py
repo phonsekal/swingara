@@ -100,6 +100,10 @@ def test_full_conviction_buy_with_default_broker_mode():
     assert verdict.layers["b"]["status"] == "pass"
     assert verdict.layers["c"]["status"] == "pass"
     assert verdict.plan is not None
+    # backtest-backed plan defaults
+    assert verdict.plan["tp1_pct"] == 5.0
+    assert verdict.plan["tp2_pct"] == 10.0
+    assert verdict.plan["sl_pct"] == 5.0
     # SS detected as one of the matched institutional brokers in loose mode
     matched = [b["broker_code"] for b in verdict.broker_flow["layer_b"]["details"]["matched_brokers"]]
     assert "SS" in matched

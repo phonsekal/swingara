@@ -18,6 +18,56 @@ const VERDICT_STYLE = {
   REJECTED: "bg-slate-600/15 text-slate-400 border-slate-600/40",
 };
 
+const GLOSSARY = [
+  { term: "EMA20 / SMA50", def: "Rata-rata harga 20 & 50 hari terakhir. Harga > EMA20 > SMA50 artinya tren sedang naik." },
+  { term: "Bollinger Band (20, 2σ)", def: "Pita di sekitar rata-rata harga. Lower band = area 'murah' relatif 20 hari; menyentuhnya = zona diskon." },
+  { term: "RSI(14)", def: "Skala 0–100. >70 = overbought (mahal, rawan koreksi), <30 = oversold (murah)." },
+  { term: "ATR(14)", def: "Rata-rata pergerakan harga harian. Dipakai untuk stop loss (2×ATR dari harga masuk)." },
+  { term: "Nilai transaksi 20 hari", def: "Rata-rata Rp saham × volume 20 hari = likuiditas. Makin besar, makin mudah jual-beli." },
+  { term: "Anchor / VWAP", def: "Rata-rata harga tertimbang volume selama lookback — proxy harga beli rata-rata broker. Harga ≤ anchor × 1,03 = masih dekat zona akumulasi." },
+  { term: "nval (net value)", def: "Nilai beli − nilai jual sebuah broker dalam Rp. Positif = net buy (akumulasi), negatif = net sell (distribusi)." },
+  { term: "TP1 / TP2 / SL", def: "Target profit 1 (+10%, jual 50% lot), target profit 2 (+20%, jual semua), stop loss (batas rugi)." },
+  { term: "Lot", def: "Satuan transaksi IDX: 1 lot = 100 lembar saham." },
+  { term: "Pullback", def: "Koreksi wajar dari harga tertinggi. Strategi ini membeli saat pullback ke zona diskon, bukan mengejar harga yang sudah naik." },
+];
+
+// verdict filter state
+let verdictFilter = null;
+
+function renderGlossary() {
+  $("sc-glossary").innerHTML = GLOSSARY.map((g) =>
+    `<div><span class="font-semibold text-slate-200">${g.term}</span> — ${g.def}</div>`).join("");
+}
+renderGlossary();
+
+function renderFilterChips(counts) {
+  const bar = $("sc-filter");
+  const order = ["MAXIMUM_CONVICTION_BUY", "STRONG_BUY", "NEUTRAL_HOLD", "WATCHLIST", "REJECTED"];
+  const chips = [`<button class="vfilter rounded-full border px-3 py-1 font-bold ${verdictFilter === null ? "border-cyan-400 bg-cyan-500/15 text-cyan-300" : "border-slate-700 text-slate-400 hover:text-slate-200"}" data-v="">Semua (${Object.values(counts).reduce((a, b) => a + b, 0)})</button>`];
+  order.forEach((v) => {
+    if (!counts[v]) return;
+    const active = verdictFilter === v;
+    chips.push(`<button class="vfilter rounded-full border px-3 py-1 font-bold ${active ? "border-cyan-400 bg-cyan-500/15 text-cyan-300" : "border-slate-700 text-slate-400 hover:text-slate-200"}" data-v="${v}">${v.replace(/_/g, " ")} (${counts[v]})</button>`);
+  });
+  bar.innerHTML = chips.join(" ");
+  bar.classList.remove("hidden");
+  bar.classList.add("flex");
+  bar.querySelectorAll(".vfilter").forEach((b) => {
+    b.addEventListener("click", () => {
+      verdictFilter = b.dataset.v || null;
+      renderFilterChips(counts);
+      applyVerdictFilter();
+    });
+  });
+}
+
+function applyVerdictFilter() {
+  document.querySelectorAll(".vcard").forEach((el) => {
+    const show = !verdictFilter || el.dataset.verdict === verdictFilter;
+    el.classList.toggle("hidden", !show);
+  });
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
@@ -84,7 +134,7 @@ const SC_DEFAULTS = {
   retail: "YP,CC,NI", season: false, news: false,
 };
 const BT_DEFAULTS = {
-  tickers: "TINS,ANTM", lookback: 15, rsi: 60, tp1: 10, tp2: 20, sl: 6, hold: 30, capital: 100, fee: 0.25,
+  tickers: "TINS,ANTM", lookback: 15, rsi: 60, tp1: 5, tp2: 10, sl: 5, hold: 15, capital: 100, fee: 0.25,
 };
 
 function resetScanner() {
@@ -240,6 +290,8 @@ function handleStreamLine(line) {
     if (t.avg_20d_value_idr != null) trendState.vals.push(t.avg_20d_value_idr);
     if ((r.layers.a || {}).status === "pass") trendState.aPass++;
     $("sc-results").insertAdjacentHTML("beforeend", verdictCard(r));
+    renderFilterChips(trendState.counts);
+    applyVerdictFilter();
     updateTrend();
     return;
   }
@@ -302,6 +354,20 @@ function newsHtml(news, corp) {
   return html;
 }
 
+function explanationHtml(ex) {
+  if (!ex || !ex.points) return "";
+  const marker = { pass: "✅", fail: "❌", info: "ℹ️" };
+  const color = { pass: "text-emerald-300", fail: "text-rose-300", info: "text-slate-300" };
+  const points = ex.points.map((p) =>
+    `<li class="flex gap-2"><span>${marker[p.kind] || "•"}</span><span class="${color[p.kind] || ""}">${p.text}</span></li>`).join("");
+  return `
+    <div class="mt-3 rounded-lg border border-slate-700/60 bg-slate-950/80 p-3">
+      <h4 class="text-xs font-bold uppercase tracking-wide text-cyan-400">💡 Kenapa ${ex.verdict.replace(/_/g, " ")}?</h4>
+      <p class="mt-1 text-sm text-slate-200">${ex.summary}</p>
+      <ul class="mt-2 space-y-1.5 text-sm">${points}</ul>
+    </div>`;
+}
+
 function verdictCard(r) {
   const t = r.technicals || {};
   const bf = r.broker_flow || {};
@@ -342,7 +408,7 @@ function verdictCard(r) {
   ] : [["—", "Layer A gagal / data kurang"]];
 
   return `
-    <div class="rounded-xl border ${VERDICT_STYLE[r.verdict].split(" ").slice(-1)[0]} bg-slate-900/50 p-4">
+    <div class="vcard rounded-xl border ${VERDICT_STYLE[r.verdict].split(" ").slice(-1)[0]} bg-slate-900/50 p-4" data-verdict="${r.verdict}">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center gap-3">
           <span class="font-mono text-lg font-bold">${r.ticker}</span>
@@ -356,6 +422,7 @@ function verdictCard(r) {
         ${card("Layer C — Retail", cRows)}
         ${card("Rencana Trading", planRows)}
       </div>
+      ${explanationHtml(r.explanation)}
       <div class="mt-3 grid gap-3 lg:grid-cols-2">
         ${seasonalityHtml(r.seasonality)}
         ${newsHtml(r.news, r.corp_actions)}
@@ -430,12 +497,39 @@ async function runBacktest() {
     const d = await api("/backtest", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
-    $("bt-results").innerHTML = d.results.map(backtestCard).join("");
+    $("bt-results").innerHTML = backtestCombinedCard(d.combined) + d.results.map(backtestCard).join("");
   } catch (e) {
     setErr("bt-err", e.message);
   } finally {
     btn.disabled = false; btn.textContent = "📈 Jalankan Backtest";
   }
+}
+
+function backtestCombinedCard(c) {
+  if (!c || c.n_trades === 0) return `
+    <div class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300">
+      📊 Agregat: 0 sinyal di periode ini — tidak ada data untuk menilai optimalitas strategi.
+    </div>`;
+  const m = (label, val, good) => `
+    <div class="rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-center">
+      <div class="text-xs text-slate-500">${label}</div>
+      <div class="mt-1 font-mono text-lg font-bold ${good === undefined ? "text-slate-100" : good ? "text-emerald-300" : "text-rose-300"}">${val}</div>
+    </div>`;
+  return `
+    <div class="rounded-xl border border-cyan-500/40 bg-cyan-500/5 p-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-cyan-300">📊 Agregat Semua Ticker</h3>
+        <span class="text-xs text-slate-500">${c.note || ""}</span>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+        ${m("Total Trade", c.n_trades)}
+        ${m("Win Rate", c.win_rate_pct + "%", c.win_rate_pct >= 50)}
+        ${m("Avg Return/Trade", (c.avg_return_pct >= 0 ? "+" : "") + c.avg_return_pct + "%", c.avg_return_pct > 0)}
+        ${m("Profit Factor", c.profit_factor ?? "—", (c.profit_factor ?? 0) >= 1)}
+        ${m("Avg Hold", c.avg_hold_days + " hari")}
+        ${m("Max DD", "-" + c.max_drawdown_pct + "%", (c.max_drawdown_pct ?? 99) < 15)}
+      </div>
+    </div>`;
 }
 
 function backtestCard(b) {

@@ -11,6 +11,7 @@ import numpy as np
 
 from . import technicals as ta
 from .arjum import ArjumClient, ArjumAuthError, ArjumError
+from .explain import explain_verdict
 from .extras import fetch_corp_actions, fetch_news
 from .models import ScanParams, StockVerdict
 from .plan import build_plan
@@ -394,7 +395,7 @@ async def analyze_stock(
         news = await fetch_news(ticker)
         corp_actions = await fetch_corp_actions(ticker)
 
-    return StockVerdict(
+    stock = StockVerdict(
         ticker=ticker,
         verdict=verdict,
         layers={
@@ -411,3 +412,5 @@ async def analyze_stock(
         news=news,
         corp_actions=corp_actions,
     )
+    stock.explanation = explain_verdict(stock, params)
+    return stock

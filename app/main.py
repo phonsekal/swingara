@@ -503,11 +503,40 @@ async def backtest_endpoint(request: Request, params: BacktestParams):
     return {
         "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "results": results,
+        "combined": _combined_backtest_metrics(results),
         "arjum_usage": arjum_budget.usage(),
     }
 
 
 # ------------------------------------------------------------------------ alerts
+
+
+def _combined_backtest_metrics(results: list[dict]) -> dict:
+    """Aggregate trade stats across all backtested tickers."""
+    rets: list[float] = []
+    holds: list[int] = []
+    max_dds: list[float] = []
+    for r in results:
+        m = r.get("metrics") or {}
+        for t in r.get("trades") or []:
+            rets.append(t.get("return_pct", 0.0))
+            holds.append(t.get("hold_days", 0))
+        if m.get("max_drawdown_pct") is not None:
+            max_dds.append(m["max_drawdown_pct"])
+    if not rets:
+        return {"n_trades": 0, "note": "tidak ada sinyal di periode ini"}
+    wins = sum(1 for r in rets if r > 0)
+    gross_win = sum(r for r in rets if r > 0)
+    gross_loss = sum(abs(r) for r in rets if r < 0)
+    return {
+        "n_trades": len(rets),
+        "win_rate_pct": round(wins / len(rets) * 100.0, 1),
+        "avg_return_pct": round(sum(rets) / len(rets), 2),
+        "profit_factor": round(gross_win / gross_loss, 2) if gross_loss > 0 else None,
+        "avg_hold_days": round(sum(holds) / len(holds), 1),
+        "max_drawdown_pct": round(max(max_dds), 2) if max_dds else None,
+        "note": "agregat semua ticker; return per trade (belum termasuk compounding)",
+    }
 
 @app.get("/api/alerts/run")
 @app.post("/api/alerts/run")

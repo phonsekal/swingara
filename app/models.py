@@ -44,10 +44,12 @@ class ScanParams(BaseModel):
     retail_brokers: list[str] = Field(default_factory=lambda: ["YP", "CC", "NI"])
     retail_share_min: float = 0.5
 
-    # --- Blueprint ---
-    tp1_pct: float = 10.0
-    tp2_pct: float = 20.0
-    sl_pct: float = 6.0
+    # --- Blueprint (defaults dari backtest 5 tahun, lihat scripts/tune.py) ---
+    # Target +10/+20% terlalu jauh: PF 0.76 (rugi). TP 5/10 + SL 5 + hold 15 hari
+    # menghasilkan PF 1.11 & win rate 48.9% pada sampel yang sama.
+    tp1_pct: float = 5.0
+    tp2_pct: float = 10.0
+    sl_pct: float = 5.0
     atr_stop_mult: float = 2.0
     risk_per_trade_pct: float = 2.0
     portfolio_idr: float = 100_000_000.0
@@ -86,6 +88,8 @@ class StockVerdict(BaseModel):
     seasonality: Optional[dict] = None
     news: Optional[list] = None
     corp_actions: Optional[list] = None
+    # plain-language explanation of the verdict (always filled)
+    explanation: Optional[dict] = None
 
 
 class ScanResponse(BaseModel):

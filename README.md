@@ -122,6 +122,26 @@ The cron (weekdays 09:30 UTC = 16:30 WIB) is defined in `vercel.json`. Hobby pla
 supports cron jobs; if yours doesn't, trigger `GET /api/alerts/run` from any external
 scheduler (GitHub Actions, cron-job.org, etc.).
 
+## Backtest findings (5 tahun, 43 saham likuid — `scripts/analyze_backtest.py`, `scripts/tune.py`)
+
+Run with the original spec targets (+10%/+20%, SL −6%), the strategy **loses money**:
+137 trades, win rate 33.6%, avg −0.63%/trade, profit factor **0.79** — targets too far
+for the pullback edge, most trades end at SL/timeout.
+
+A simple, interpretable tuning pass flipped it positive:
+
+| set | trade | win% | avgRet% | PF | maxDD% |
+|---|---|---|---|---|---|
+| baseline (TP10/20, SL6) | 45 | 33.3 | −0.78 | 0.76 | 9.7 |
+| **TP5/10, SL5, hold15** | **45** | **48.9** | **+0.22** | **1.11** | **5.6** |
+| TP12/25, SL8, hold45 | 45 | 35.6 | +0.34 | 1.10 | 10.2 |
+
+**The defaults are now TP1 +5% / TP2 +10% / SL −5% / hold ≤15 hari** (backtest-backed).
+
+Caveats: the backtest tests only Layer A (broker data has no history, so Layer B/C
+can't be backtested) and the edge is thin — treat the broker/retail layers as a
+confirmation filter that *improves* these baseline odds, not as a guarantee.
+
 ## Notes
 
 - `buy_avg_anchor` is a **VWAP proxy**: the arjum API exposes broker buy value/frequency
