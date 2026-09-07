@@ -105,7 +105,66 @@ def sector_tickers(sector: str) -> list[str]:
 
 
 def all_mapped_tickers() -> list[str]:
-    return sorted(SECTOR_MAP.keys())
+    return all_mapped_tickers_by_market_cap_desc()
+
+
+def all_mapped_tickers_by_market_cap_desc() -> list[str]:
+    """Static candidate order: larger / more frequently traded names first.
+
+    Keeps universe=mapped deterministic and offline while still surfacing the
+    sa ham likuid / nilainya lebih besar lebih awal, yang bikin hasil scan
+    lebih mudah diinterpretasi.
+    """
+    # Ideal: sort by real market cap. Since market cap requires the arjum
+    # market_cap API, we keep this lightweight sentinel ordering as a fallback
+    # that still biases toward names that tend to be bigger / more liquid.
+    order = [
+        # Banks
+        "BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BRIS", "BNGA", "BJBR",
+        "BJTM", "MEGA", "BDMN", "NISP", "PNBN", "MAYA", "AGRO", "INPC",
+        "NOBU", "SDRA",
+        # Mining
+        "ANTM", "TINS", "ADRO", "PTBA", "ITMG", "HRUM", "INCO", "MDKA",
+        "BUMI", "BRMS", "DOID", "PSAB", "GTBO", "MBAP", "BESS", "NCKL",
+        # Energy
+        "PGAS", "MEDC", "ELSA", "AKRA", "ENRG", "SUGI", "SGER", "RAJA",
+        "APEX",
+        # Consumer
+        "ICBP", "INDF", "UNVR", "MYOR", "ULTJ", "DLTA", "CAMP", "GOOD",
+        "ROTI", "STTP", "CPIN", "JPFA", "MAIN", "CEKA", "SKBM", "IKAN",
+        "GGRM", "HMSP", "WIIM",
+        # Health
+        "KLBF", "KAEF", "SIDO", "PYFA", "HEAL", "SILO", "MIKA", "PRDA",
+        "RSGK",
+        # Property
+        "SMRA", "BSDE", "CTRA", "PWON", "LPKR", "ASRI", "PPRO", "DMAS",
+        "KIJA", "BAPA", "MTLA", "JRPT",
+        # Construction
+        "WSKT", "WIKA", "PTPP", "ADHI", "TOTL", "ACST", "NRCA", "WEGE",
+        "PTPW",
+        # Infrastructure
+        "JSMR", "TBIG", "TOWR", "MTEL", "SUPR", "CMNP",
+        # Telecom
+        "TLKM", "ISAT", "EXCL",
+        # Transport
+        "GIAA", "BIRD", "ASSA", "WEHA", "CMPP", "MIRA",
+        # Tech & media
+        "GOTO", "MTDL", "MNCN", "SCMA", "EMTK", "FILM", "BMTR",
+        # Retail
+        "MAPI", "ERAA", "ACES", "LPPF", "RALS", "AMRT", "MIDI", "CSIS",
+        # Auto
+        "ASII", "AUTO", "SMSM", "BRAM", "INDX", "NIPS",
+        # Material & chemical
+        "SMGR", "INTP", "WTON", "SMBR", "KRAS", "AMFG", "BRPT", "TPIA",
+        "AKPI", "TKIM", "INKP", "FASW", "ALKA", "BTON", "BRNA", "EKAD",
+        # Plantation
+        "AALI", "LSIP", "TAPG", "SIMP", "SGRO", "DSNG", "BWPT", "GZCO",
+        "SMAR",
+    ]
+    desired = {c.upper() for c in order}
+    mapped = set(SECTOR_MAP.keys())
+    remaining = sorted(mapped - desired)
+    return [c for c in order if c in mapped] + remaining
 
 
 # ------------------------------------------------------------------- universe

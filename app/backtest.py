@@ -49,6 +49,7 @@ async def backtest(
     liq = _rolling_avg_value(close, volume, 20)
     pull = _rolling_pullback(close, high, 20)
     atr14 = ta.atr(high, low, close, 14)
+    touch_any = ta.close_near_lower_band(close, lower, params.touch_window_days)
 
     def signal_at(i: int) -> bool:
         if i < max(params.min_history_days, params.sma_period, params.bb_period) - 1:
@@ -58,6 +59,7 @@ async def backtest(
         return bool(
             close[i] > ema20[i] > sma50[i]
             and min(close[i], low[i]) <= lower[i] * (1.0 + params.touch_tolerance_pct / 100.0)
+            and touch_any[i]
             and liq[i] > params.min_liquidity_idr
             and close[i] >= params.min_price
             and (params.max_price is None or close[i] <= params.max_price)

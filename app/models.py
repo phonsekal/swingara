@@ -37,6 +37,7 @@ class ScanParams(BaseModel):
     bb_period: int = 20
     bb_std: float = 2.0
     touch_tolerance_pct: float = 1.0
+    touch_window_days: int = 5  # multi-bar confirmation: price touched BB lower within this window
     rsi_max: float = 60.0  # 0 disables
     pullback_pct: float = 3.0  # 0 disables
 
@@ -55,7 +56,7 @@ class ScanParams(BaseModel):
     portfolio_idr: float = 100_000_000.0
 
     # --- Universe selection ---
-    universe: Literal["watchlist", "all", "sector"] = "watchlist"
+    universe: Literal["watchlist", "all", "sector", "mapped"] = "watchlist"
     sector: Optional[str] = None  # used when universe == "sector"
     min_market_cap_idr: float = 3_000_000_000_000.0  # used when universe == "all"
     max_tickers: int = 300  # cap for universe == "all" (serverless 60s window)

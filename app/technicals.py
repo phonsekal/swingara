@@ -124,3 +124,28 @@ def pullback_pct(close: np.ndarray, high: np.ndarray, window: int = 20) -> float
     if peak <= 0:
         return float("nan")
     return (peak - close[-1]) / peak * 100.0
+
+
+def close_near_lower_band(close: np.ndarray, lower: np.ndarray, window: int) -> np.ndarray:
+    """For each bar i, True if any of close[-window:i+1] is near/through lower band.
+
+    Used as a multi-bar confirmation: the pullback must have touched (or come very
+    close to) the lower Bollinger band at some point in the recent window, not only
+    on the single signal bar.
+    """
+    close = np.asarray(close, dtype=float)
+    lower = np.asarray(lower, dtype=float)
+    n = len(close)
+    out = np.full(n, False)
+    if n < window or window <= 0:
+        return out
+    for i in range(window - 1, n):
+        segment_lower = lower[i - window + 1: i + 1]
+        segment_close = close[i - window + 1: i + 1]
+        if np.any(np.isnan(segment_lower)):
+            continue
+        peak_low = float(np.min(segment_close))
+        band_low = float(np.min(segment_lower))
+        if peak_low <= band_low:
+            out[i] = True
+    return out

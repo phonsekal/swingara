@@ -9,7 +9,11 @@ from app.scanner import _layer_bc, analyze_stock
 
 def _candles() -> list[dict]:
     """Strong uptrend (100 -> 1000), 18-bar pullback to ~932, then a hammer bar
-    whose low touches the lower Bollinger band while close stays above EMA20."""
+    whose low touches the lower Bollinger band while close stays above EMA20.
+
+    Revised so the last 5 bars include at least one near-touch of the lower
+    Bollinger band (multi-bar confirmation for the refined Layer A signal).
+    """
     rows: list[dict] = []
     for i in range(100):
         close = 100.0 + i * 9.0
@@ -23,8 +27,9 @@ def _candles() -> list[dict]:
                 "volume": 50_000_000,
             }
         )
-    for k in range(1, 19):
-        close = 1000.0 - k * 3.8
+    # pullback toward lower band; last several bars dip toward/through it
+    for k in range(1, 16):
+        close = 1000.0 - k * 4.0
         rows.append(
             {
                 "date": f"p{k}",
@@ -35,12 +40,33 @@ def _candles() -> list[dict]:
                 "volume": 50_000_000,
             }
         )
+    # two extra setup bars that actually touch the lower band, then recovery
+    rows.append(
+        {
+            "date": "pre1",
+            "open": 918.0,
+            "high": 932.0,
+            "low": 886.0,
+            "close": 900.0,
+            "volume": 55_000_000,
+        }
+    )
+    rows.append(
+        {
+            "date": "pre2",
+            "open": 900.0,
+            "high": 930.0,
+            "low": 874.0,
+            "close": 915.0,
+            "volume": 55_000_000,
+        }
+    )
     rows.append(
         {
             "date": "last",
-            "open": 932.0,
+            "open": 920.0,
             "high": 957.0,
-            "low": 922.0,
+            "low": 900.0,
             "close": 950.0,
             "volume": 55_000_000,
         }

@@ -154,6 +154,7 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
     _, _, lower = ta.bollinger(close, params.bb_period, params.bb_std)
     atr14 = ta.atr(high, low, close, 14)
     rsi14 = ta.rsi(close, 14)
+    touch_any = ta.close_near_lower_band(close, lower, params.touch_window_days)
 
     last = n - 1
     price = float(close[last])
@@ -169,6 +170,7 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
         min(price, float(low[last]))
         <= lb * (1.0 + params.touch_tolerance_pct / 100.0)
     )
+    checks["touch_window"] = bool(touch_any[last])
     liq = ta.avg_transaction_value(close, volume, 20)
     checks["liquidity"] = bool(liq > params.min_liquidity_idr)
     checks["min_price"] = bool(price >= params.min_price)

@@ -22,7 +22,8 @@ from .budget import arjum_budget
 from .config import settings
 from .models import BacktestParams, ScanParams, ScanResponse, StockVerdict
 from .scanner import analyze_stock
-from .universe import SECTORS, all_mapped_tickers, fetch_universe, group_of, sector_tickers
+from .resolve_tickers import resolve_tickers
+from .universe import SECTORS, all_mapped_tickers, fetch_universe, group_of, sector_tickers, all_mapped_tickers_by_market_cap_desc
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -147,33 +148,7 @@ async def _resolve_tickers(
     params: ScanParams, client: Optional[ArjumClient]
 ) -> tuple[list[str], str]:
     """Resolve tickers + human label from the universe/sector/tickers selection."""
-    if params.tickers:
-        seen: set[str] = set()
-        out: list[str] = []
-        for t in params.tickers:
-            t = t.strip().upper().removesuffix(".JK")
-            if t and t not in seen:
-                seen.add(t)
-                out.append(t)
-        return out, "custom"
-
-    if params.universe == "sector" and params.sector:
-        tickers = sector_tickers(params.sector)
-        if not tickers:
-            raise HTTPException(status_code=400, detail=f"Sektor tidak dikenal: {params.sector}")
-        return tickers, f"sector:{params.sector}"
-
-    if params.universe == "all":
-        uni = await fetch_universe(
-            client,
-            min_market_cap_idr=params.min_market_cap_idr,
-            max_tickers=params.max_tickers,
-        )
-        tickers = [u["code"] for u in uni]
-        return tickers, f"all({len(tickers)})"
-
-    watchlist = [t.strip().upper() for t in settings.default_watchlist if t.strip()]
-    return watchlist, "watchlist"
+    return await resolve_tickers(params, client)
 
 
 async def _run_scan(request: Request, params: ScanParams) -> ScanResponse:
@@ -229,7 +204,7 @@ async def scan_get(
     request: Request,
     tickers: str = Query("", description="Comma-separated, e.g. BBRI,BMRI,TINS"),
     brokers: str = Query("", description="OPTIONAL broker filter, e.g. SS or SS,YP (empty = any institutional broker)"),
-    universe: str = Query("watchlist", description="watchlist | all | sector"),
+    universe: str = Query("watchlist", description="watchlist | all | sector | mapped"),
     sector: Optional[str] = Query(None, description="Sector key when universe=sector (lihat /api/universe)"),
     min_market_cap_idr: float = 3_000_000_000_000.0,
     max_tickers: int = 300,
@@ -275,14 +250,52 @@ async def scan_get(
     return await _run_scan(request, params)
 
 
+@app.get("/scan/sector-tickers")
+async def scan_get_sector_tickers(
+    sector: str = Query("", description="Sector key, lihat /api/universe"),
+):
+    if not sector:
+        return {"groups": SECTORS}
+    tickers = sector_tickers(sector)
+    if not tickers:
+        raise HTTPException(status_code=400, detail=f"Sektor tidak dikenal: {sector}")
+    return {
+        "sector": sector,
+        "sector_label": next((label for key, label in SECTORS if key == sector), sector),
+        "tickers": tickers,
+        "count": len(tickers),
+    }
+
+
 @app.post("/scan")
 async def scan_post(request: Request, params: ScanParams):
     return await _run_scan(request, params)
 
 
+@app.get("/scan/stream/sector-tickers")
+async def scan_get_stream_sector_tickers(
+    sector: str = Query("", description="Sector key"),
+):
+    if not sector:
+        return {"groups": SECTORS}
+    tickers = sector_tickers(sector)
+    if not tickers:
+        raise HTTPException(status_code=400, detail=f"Sektor tidak dikenal: {sector}")
+    return {
+        "sector": sector,
+        "sector_label": next((label for key, label in SECTORS if key == sector), sector),
+        "tickers": tickers,
+        "count": len(tickers),
+    }
+
+
 async def _scan_stream(request: Request, params: ScanParams):
     """NDJSON stream: meta -> one result line per ticker -> done. Powers the UI's
     realtime group-trend rendering."""
+    stream_order: list[str] | None = None
+    if params.universe == "mapped":
+        stream_order = all_mapped_tickers_by_market_cap_desc()
+
     client = _client_for(request)
     try:
         tickers, group = await _resolve_tickers(params, client)
@@ -300,12 +313,15 @@ async def _scan_stream(request: Request, params: ScanParams):
             return await analyze_stock(code, params, client)
 
     async def gen():
+        _tickers = list(tickers)
+        if stream_order is not None and set(_tickers).issubset(set(stream_order)):
+            _tickers = [t for t in stream_order if t in set(_tickers)]
         yield json.dumps(
-            {"type": "meta", "total": len(tickers), "group": group, "tickers": tickers, "params": params.model_dump(exclude={"tickers"})}
+            {"type": "meta", "total": len(_tickers), "group": group, "tickers": _tickers, "params": params.model_dump(exclude={"tickers"})}
         ) + "\n"
         counts: dict[str, int] = {}
         try:
-            for coro in asyncio.as_completed([one(c) for c in tickers]):
+            for coro in asyncio.as_completed([one(c) for c in _tickers]):
                 r = await coro
                 counts[r.verdict] = counts.get(r.verdict, 0) + 1
                 yield json.dumps({"type": "result", "ticker": r.ticker, "result": r.model_dump()}) + "\n"
@@ -323,6 +339,7 @@ async def _scan_stream(request: Request, params: ScanParams):
                 "summary": {"by_verdict": counts, "total": len(tickers)},
                 "arjum_usage": arjum_budget.usage(),
                 "warnings": warnings,
+                "group": group,
             }
         ) + "\n"
 
