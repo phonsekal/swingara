@@ -73,10 +73,17 @@
               <input id="sc-topn" type="number" value="3" class="param-input" /></div>
             <div><label class="block text-xs text-slate-400">Likuiditas (Miliar)</label>
               <input id="sc-liq" type="number" value="5" step="0.5" class="param-input" /></div>
-            <div><label class="block text-xs text-slate-400">RSI Max (0 = off)</label>
+            <div>              <label class="block text-xs text-slate-400">RSI Max (0 = off)</label>
               <input id="sc-rsi" type="number" value="60" class="param-input" /></div>
             <div><label class="block text-xs text-slate-400">Pullback Min % (0 = off)</label>
               <input id="sc-pull" type="number" value="3" step="0.5" class="param-input" /></div>
+            <div><label class="block text-xs text-slate-400">Layer A Method</label>
+              <select id="sc-method" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500">
+                <option value="band_proximity_main">📌 Zona Band Proximity (default terkurasi)</option>
+                <option value="buy_quality_tighter">Kualitas Lebih Ketat</option>
+                <option value="strict_strong_buy">Strict Strong Buy</option>
+                <option value="wide_candidate_pool">Lebih Banyak Kandidat</option>
+              </select></div>
             <div><label class="block text-xs text-slate-400">Harga Min (Rp)</label>
               <input id="sc-minprice" type="number" value="100" class="param-input" /></div>
             <div><label class="block text-xs text-slate-400">Anchor % (chase guard)</label>
