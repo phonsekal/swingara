@@ -263,7 +263,7 @@ async def scan_get(
     )
     if not layer_a_method and universe in ("mapped", "watchlist"):
         params.layer_a_method = "band_proximity_main"
-        params.band_gap_max_pct = 3.0
+    params.band_gap_max_pct = 3.0 if params.layer_a_method in ("strict_strong_buy", "buy_quality_tighter", "band_proximity_main", "wide_candidate_pool") else 0.0
     return await _run_scan(request, params, use_default_method=True)
 
 
