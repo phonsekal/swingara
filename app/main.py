@@ -21,7 +21,7 @@ from .backtest import backtest
 from .budget import arjum_budget
 from .config import settings
 from .models import BacktestParams, ScanParams, ScanResponse, StockVerdict
-from .resolve_method import default_method_params, list_methods, is_valid_method
+from .resolve_method import default_method_params, list_methods, is_valid_method, is_valid_method
 from .scanner import analyze_stock
 from .resolve_tickers import resolve_tickers
 from .universe import SECTORS, all_mapped_tickers, fetch_universe, group_of, sector_tickers, all_mapped_tickers_by_market_cap_desc
@@ -262,9 +262,9 @@ async def scan_get(
         band_gap_max_pct=0.0,
     )
     if not layer_a_method and universe in ("mapped", "watchlist"):
-        params.layer_a_method = "band_proximity_main"        params.band_gap_max_pct = 3.0 if params.layer_a_method in ("strict_strong_buy", "buy_quality_tighter", "band_proximity_main", "wide_candidate_pool") else 0.0
-    if params.method:
-        params.layer_a_method = params.method
+        params.layer_a_method = "band_proximity_main"
+    if params.layer_a_method:
+        params.band_gap_max_pct = 3.0
     return await _run_scan(request, params, use_default_method=True)
 
 
@@ -289,7 +289,10 @@ async def scan_get_sector_tickers(
 async def scan_post(request: Request, params: ScanParams):
     if not params.layer_a_method and params.universe in ("mapped", "watchlist"):
         params.layer_a_method = "band_proximity_main"
-    params.band_gap_max_pct = 3.0 if is_valid_method(params.layer_a_method) else 0.0
+    if params.layer_a_method:
+        params.band_gap_max_pct = 3.0
+    else:
+        params.band_gap_max_pct = 0.0
     return await _run_scan(request, params, use_default_method=True)
 
 
