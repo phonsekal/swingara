@@ -611,3 +611,201 @@ function verdictCard(r){
       ${chartHtml}
     </div>`;
 }
+
+// ---------------------------------------------------------------- wiring
+$("#sc-run").addEventListener("click",runScan);
+document.querySelectorAll(".chip").forEach((c)=>{
+  c.addEventListener("click",()=>{$("#sc-brokers").value=c.dataset.broker;});
+});
+resetScanner();
+
+// ---------------------------------------------------------------- broker
+async function runBroker(){
+  const code=$("#br-ticker").value.trim().toUpperCase()||"BBRI";
+  const filter=$("#br-filter").value.trim().toUpperCase();
+  const topN=+($("#br-topn").value)||15;
+  const q=new URLSearchParams({top_n:topN});
+  if(filter)q.set("brokers",filter);
+  setErr("br-err", null);
+  try{
+    const d=await api(`/brokers/${code}?${q}`);
+    const rows=d.brokers||[];
+    const head=["Broker","Nama","Buy (Rp)","Sell (Rp)","Net (Rp)","Net Vol","Matched?"];
+    const trs=rows.map((b)=>{
+      const net=b.nval||0;
+      const cls=net>0?"text-emerald-300":net<0?"text-rose-300":"text-slate-400";
+      return `<tr class="border-b border-slate-800 hover:bg-slate-800/40">
+        <td class="px-3 py-2 font-mono font-bold">${b.broker_code}</td>
+        <td class="px-3 py-2 text-slate-400">${b.broker_name||""}</td>
+        <td class="px-3 py-2 font-mono text-right">${fmt(b.bval)}</td>
+        <td class="px-3 py-2 font-mono text-right">${fmt(b.sval)}</td>
+        <td class="px-3 py-2 font-mono text-right font-bold ${cls}">${net>0?"+":""}${fmt(net)}</td>
+        <td class="px-3 py-2 font-mono text-right">${fmt(b.nvol)}</td>
+        <td class="px-3 py-2 text-center">${filter&&filter.split(",").includes(b.broker_code)?"✓":""}</td>
+      </tr>`;
+    }).join("");
+    $("#br-table-wrap").innerHTML=`
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs uppercase text-slate-500">${head.map((h)=>`<th class="px-3 py-2">${h}</th>`).join("")}</tr></thead>
+        <tbody>${trs||`<tr><td colspan="7" class="px-3 py-4 text-center text-slate-500">Tidak ada data</td></tr>`}</tbody>
+      </table>`;
+    $("#br-meta").innerHTML=
+      `${d.stock_code} · ${d.broker_start||"?"} → ${d.broker_end||"?"} · filter: ${d.filter.brokers?d.filter.brokers.join(","):"semua"} · `+
+      (d.matched?badge("MATCHED","bg-emerald-500/15 text-emerald-300 border-emerald-500/40"):"")+
+      ` · kuota arjum: ${d.arjum_usage?d.arjum_usage.remaining:"?"}`;
+  }catch(e){
+    setErr("br-err",e.message);
+    $("#br-table-wrap").innerHTML="";
+  }
+}
+$("#br-run").addEventListener("click",runBroker);
+
+// ---------------------------------------------------------------- backtest
+async function runBacktest(){
+  const body={
+    tickers:($("#bt-tickers").value||"TINS").split(",").map((t)=>t.trim().toUpperCase()).filter(Boolean),
+    lookback_days:+($("#bt-lookback").value)||15,
+    rsi_max:+($("#bt-rsi").value)||0,
+    tp1_pct:+($("#bt-tp1").value)||10,
+    tp2_pct:+($("#bt-tp2").value)||20,
+    sl_pct:+($("#bt-sl").value)||6,
+    max_hold_days:+($("#bt-hold").value)||30,
+    start_capital:(+($("#bt-capital").value)||100)*1e6,
+    fee_pct:+($("#bt-fee").value)||0.25,
+  };
+  const btn=$("#bt-run");
+  btn.disabled=true;btn.textContent="⏳ Backtest…";
+  setErr("bt-err", null);
+  try{
+    const d=await api("/backtest",{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),
+    });
+    $("#bt-results").innerHTML=backtestCombinedCard(d.combined)+d.results.map(backtestCard).join("");
+  }catch(e){
+    setErr("bt-err",e.message);
+  }finally{
+    btn.disabled=false;btn.textContent="📈 Jalankan Backtest";
+  }
+}
+
+function backtestCombinedCard(c){
+  if(!c||c.n_trades===0)return `
+    <div class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300">
+      📊 Agregat: 0 sinyal di periode ini — tidak ada data untuk menilai optimalitas strategi.
+    </div>`;
+  const m=(label,val,good)=>`
+    <div class="rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-center">
+      <div class="text-xs text-slate-500">${label}</div>
+      <div class="mt-1 font-mono text-lg font-bold ${good===undefined?"text-slate-100":good?"text-emerald-300":"text-rose-300"}">${val}</div>
+    </div>`;
+  return `
+    <div class="rounded-xl border border-cyan-500/40 bg-cyan-500/5 p-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-cyan-300">📊 Agregat Semua Ticker</h3>
+        <span class="text-xs text-slate-500">${c.note||""}</span>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+        ${m("Total Trade",c.n_trades)}
+        ${m("Win Rate",c.win_rate_pct+"%",c.win_rate_pct>=50)}
+        ${m("Avg Return/Trade",(c.avg_return_pct>=0?"+":"")+c.avg_return_pct+"%",c.avg_return_pct>0)}
+        ${m("Profit Factor",c.profit_factor??"—",(c.profit_factor??0)>=1)}
+        ${m("Avg Hold",c.avg_hold_days+" hari")}
+        ${m("Max DD","-"+c.max_drawdown_pct+"%",(c.max_drawdown_pct??99)<15)}
+      </div>
+    </div>`;
+}
+
+function backtestCard(b){
+  if(b.error)return `<div class="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-300">${b.ticker}: ${b.error}</div>`;
+  const m=b.metrics||{};
+  const metric=(label,val,good)=>`
+    <div class="rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-center">
+      <div class="text-xs text-slate-500">${label}</div>
+      <div class="mt-1 font-mono text-lg font-bold ${good===undefined?"text-slate-100":good?"text-emerald-300":"text-rose-300"}">${val}</div>
+    </div>`;
+  const trades=(b.trades||[]).map((t)=>`
+    <tr class="border-b border-slate-800">
+      <td class="px-3 py-1.5 font-mono">${t.entry_date}</td>
+      <td class="px-3 py-1.5 font-mono">${fmt(t.entry_price)}</td>
+      <td class="px-3 py-1.5 font-mono">${t.exit_date}</td>
+      <td class="px-3 py-1.5 font-mono">${t.exit_price}</td>
+      <td class="px-3 py-1.5">${t.reason}</td>
+      <td class="px-3 py-1.5 font-mono text-right font-bold ${t.return_pct>=0?"text-emerald-300":"text-rose-300"}">${t.return_pct>=0?"+":""}${t.return_pct}%</td>
+      <td class="px-3 py-1.5 font-mono text-right">${t.lots}</td>
+    </tr>`).join("");
+  return `
+    <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+      <div class="flex items-center justify-between">
+        <span class="font-mono text-lg font-bold">${b.ticker}</span>
+        <span class="text-xs text-slate-500">${b.start_date} → ${b.end_date} · ${b.n_bars} bar</span>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+        ${metric("Total Return",(m.total_return_pct>=0?"+":"")+m.total_return_pct+"%",m.total_return_pct>=0)}
+        ${metric("Trades",m.n_trades)}
+        ${metric("Win Rate",(m.win_rate_pct??"—")+"%",(m.win_rate_pct??0)>=50)}
+        ${metric("Max DD","-"+m.max_drawdown_pct+"%",(m.max_drawdown_pct??99)<15)}
+        ${metric("Profit Factor",m.profit_factor??"—",(m.profit_factor??0)>=1)}
+        ${metric("Avg Return",(m.avg_return_pct>=0?"+":"")+m.avg_return_pct+"%",m.avg_return_pct>=0)}
+        ${metric("Avg Hold",(m.avg_hold_days??"—")+" hari")}
+        ${metric("Final Equity",fmt(m.final_equity),m.final_equity>=m.start_capital)}
+      </div>
+      <div class="mt-4">${equitySvg(b.equity_curve||[])}</div>
+      <details class="mt-3">
+        <summary class="cursor-pointer text-xs font-semibold text-slate-400 hover:text-slate-200">Daftar trade (${(b.trades||[]).length})</summary>
+        <div class="mt-2 max-h-72 overflow-auto">
+          <table class="w-full text-xs">
+            <thead><tr class="text-left uppercase text-slate-500">
+              <th class="px-3 py-1.5">Masuk</th><th class="px-3 py-1.5">Harga</th><th class="px-3 py-1.5">Keluar</th>
+              <th class="px-3 py-1.5">Harga</th><th class="px-3 py-1.5">Alasan</th><th class="px-3 py-1.5 text-right">Return</th><th class="px-3 py-1.5 text-right">Lot</th>
+            </tr></thead>
+            <tbody>${trades||`<tr><td colspan="7" class="px-3 py-3 text-center text-slate-500">Tidak ada sinyal</td></tr>`}</tbody>
+          </table>
+        </div>
+      </details>
+    </div>`;
+}
+
+function equitySvg(curve){
+  if(!curve||curve.length<2)return '<p class="text-xs text-slate-500">Data equity tidak cukup.</p>';
+  const W=640,H=180,P=8;
+  const pts=curve.length>250?curve.filter((_,i)=>i%Math.ceil(curve.length/250)===0):curve;
+  const vals=pts.map((p)=>p[1]);
+  const min=Math.min(...vals),max=Math.max(...vals);
+  const span=max-min||1;
+  const coords=pts.map((p,i)=>{
+    const x=P+(i/(pts.length-1))*(W-2*P);
+    const y=H-P-((p[1]-min)/span)*(H-2*P);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const area=`${P},${H-P} ${coords.join(" ")} ${W-P},${H-P}`;
+  return `
+    <svg viewBox="0 0 ${W} ${H}" class="w-full rounded-lg border border-slate-800 bg-slate-950">
+      <polygon points="${area}" fill="rgba(34,211,238,0.08)" />
+      <polyline points="${coords.join(" ")}" fill="none" stroke="#22d3ee" stroke-width="1.8" />
+      <text x="${P}" y="${H-P-4}" class="fill-slate-500" font-size="10">${fmt(min)}</text>
+      <text x="${W-60}" y="${P+10}" class="fill-slate-500" font-size="10">${fmt(max)}</text>
+    </svg>`;
+}
+$("#bt-run").addEventListener("click",runBacktest);
+
+// ---------------------------------------------------------------- alerts
+async function runAlerts(){
+  const btn=$("#al-run");
+  btn.disabled=true;btn.textContent="⏳ Menjalankan…";
+  setErr("al-err", null);
+  $("#al-status").innerHTML="";
+  try{
+    const d=await api("/api/alerts/run",{method:"POST"});
+    $("#al-status").innerHTML=`
+      <div class="text-sm">Summary: <span class="font-mono">${JSON.stringify(d.summary.by_verdict)}</span></div>
+      <div class="text-sm">Telegram: <span class="font-mono">${d.sent.telegram}</span></div>
+      <div class="text-sm">Webhook: <span class="font-mono">${d.sent.webhook}</span></div>
+      <div class="text-xs text-slate-500">Kuota arjum: ${d.arjum_usage.remaining}/${d.arjum_usage.budget}</div>`;
+    $("#al-preview").textContent=d.alert_preview||"";
+  }catch(e){
+    setErr("al-err",e.message);
+  }finally{
+    btn.disabled=false;btn.textContent="▶ Jalankan Alert Sekarang";
+  }
+}
+$("#al-run").addEventListener("click",runAlerts);
