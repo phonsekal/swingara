@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from .arjum import ArjumClient
+from .arjum import ArjumClient, ArjumError
 
 # (key, label) — order controls the UI dropdown
 SECTORS: list[tuple[str, str]] = [
@@ -189,12 +189,17 @@ async def fetch_universe(
             cache["rows"] = []
             cache["ts"] = now
         else:
-            first = await client.market_cap(page=1, per_page=50)
-            total_pages = int(first.get("total_pages") or 1)
-            pages = [first]
-            for p in range(2, total_pages + 1):
-                pages.append(await client.market_cap(page=p, per_page=50))
-            rows = [r for pg in pages for r in (pg.get("data") or [])]
+            try:
+                first = await client.market_cap(page=1, per_page=50)
+                total_pages = int(first.get("total_pages") or 1)
+                pages = [first]
+                for p in range(2, total_pages + 1):
+                    pages.append(await client.market_cap(page=p, per_page=50))
+                rows = [r for pg in pages for r in (pg.get("data") or [])]
+            except ArjumError as exc:
+                # arjum down / kuota habis -> jangan 500, fallback ke peta statis
+                print(f"fetch_universe fallback ke peta statis: {exc}", flush=True)
+                rows = []
             if rows:
                 cache["rows"] = rows
                 cache["ts"] = now

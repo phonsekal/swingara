@@ -51,6 +51,46 @@ def test_fetch_universe_falls_back_to_static_map_without_key():
     assert all("code" in u and "sector" in u for u in uni)
 
 
+def test_fetch_universe_falls_back_when_arjum_errors(monkeypatch):
+    """Quota habis / arjum down must NOT 500 — fallback ke peta statis."""
+    from app.arjum import ArjumError
+    from app.universe import fetch_universe
+
+    class BoomClient:
+        async def market_cap(self, page: int = 1, per_page: int = 50) -> dict:
+            raise ArjumError("HTTP 429: kuota habis")
+
+        async def close(self) -> None:
+            pass
+
+    async def go():
+        return await fetch_universe(BoomClient(), min_market_cap_idr=0.0, max_tickers=50)
+
+    uni = asyncio.run(go())
+    assert len(uni) == 50  # static map fallback, no exception
+    assert all("code" in u and "sector" in u for u in uni)
+
+
+def test_universe_endpoint_returns_groups_when_arjum_down(monkeypatch):
+    """GET /api/universe must always return sector groups (dropdown UI)."""
+    from app.arjum import ArjumError
+    from app import main as main_mod
+
+    async def boom(client):
+        raise ArjumError("HTTP 429: kuota habis")
+
+    monkeypatch.setattr(main_mod, "fetch_universe", boom)
+
+    from starlette.testclient import TestClient
+
+    with TestClient(main_mod.app) as c:
+        r = c.get("/api/universe")
+    assert r.status_code == 200
+    j = r.json()
+    assert len(j["groups"]) == len(SECTORS)
+    assert any(g["key"] == "Perbankan" for g in j["groups"])
+
+
 def test_all_extra_returns_codes_beyond_top_n(monkeypatch):
     """universe=all_extra must contain the stocks NOT in the top-N group."""
     from app.models import ScanParams

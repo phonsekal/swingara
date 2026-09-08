@@ -134,10 +134,18 @@ def health():
 
 @app.get("/api/universe")
 async def universe_info(request: Request):
-    """Sector groups + (optionally) the full market-cap universe."""
+    """Sector groups + (optionally) the full market-cap universe.
+
+    Kelompok sektor bersifat statis sehingga selalu dikembalikan, meskipun
+    arjum sedang down / kuota habis (fetch_universe fallback ke peta statis).
+    """
     client = _client_for(request)
     try:
         uni = await fetch_universe(client)
+    except Exception as exc:
+        # pertahanan terakhir: jangan pernah 500 — dropdown butuh `groups`
+        print(f"/api/universe fallback tanpa market-cap: {exc}", flush=True)
+        uni = []
     finally:
         await client.close()
     groups = [
