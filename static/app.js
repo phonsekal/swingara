@@ -660,6 +660,160 @@ async function runBroker(){
 }
 $("#br-run").addEventListener("click",runBroker);
 
+// ---------------------------------------------------------------- broker activity (cari per broker)
+function brTypeChip(info){
+  if(!info)return "";
+  const tags=info.tags||[];
+  const isSmart=tags.includes("smart_money");
+  return `<span class="ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${isSmart?"bg-violet-500/20 text-violet-300":"bg-amber-500/20 text-amber-300"}">${isSmart?"🧠 SMART MONEY":"🛒 RITEL"}</span>`+
+    (info.group&&info.group!=="-"?`<span class="ml-1 rounded bg-slate-700/60 px-1.5 py-0.5 text-[10px] text-slate-300">${info.group}</span>`:"");
+}
+
+function brokerActivityCard(d){
+  const acts=d.activities||[];
+  if(!acts.length)return `
+    <div class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300">
+      Broker <b>${d.broker}</b> tidak tercatat aktif di ${d.scanned} saham yang discan (${d.start} → ${d.end}).
+      Coba perbesar periode atau pindah universe.
+    </div>`;
+  const totalBuy=acts.reduce((s,a)=>s+a.bval,0);
+  const totalSell=acts.reduce((s,a)=>s+a.sval,0);
+  const totalNet=acts.reduce((s,a)=>s+a.nval,0);
+  const netCls=totalNet>=0?"text-emerald-300":"text-rose-300";
+  const rows=acts.map((a)=>{
+    const net=a.nval||0;
+    const cls=net>0?"text-emerald-300":net<0?"text-rose-300":"text-slate-400";
+    return `<tr class="border-b border-slate-800 hover:bg-slate-800/40">
+      <td class="px-3 py-2 font-mono font-bold text-cyan-300">${a.ticker}</td>
+      <td class="px-3 py-2 font-mono text-right">${a.close!=null?fmt(a.close):"−"}</td>
+      <td class="px-3 py-2 font-mono text-right">${fmt(a.bval)}</td>
+      <td class="px-3 py-2 font-mono text-right">${fmt(a.sval)}</td>
+      <td class="px-3 py-2 font-mono text-right font-bold ${cls}">${net>0?"+":""}${fmt(net)}</td>
+      <td class="px-3 py-2 font-mono text-right">${fmt(a.nvol)}</td>
+      <td class="px-3 py-2 text-center text-xs text-slate-400">${a.bfrq||0} / ${a.sfrq||0}</td>
+      <td class="px-3 py-2 text-xs text-slate-500">${a.broker_end||""}</td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="rounded-xl border border-slate-700 bg-slate-950/60 p-3">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-sm">
+        <span class="font-mono font-bold text-slate-100">${d.broker}</span>
+        ${brTypeChip(d.broker_dir)}
+        <span class="text-slate-500">${d.broker_dir?.name||""} · ${d.start} → ${d.end}</span>
+      </div>
+      <div class="mb-3 grid grid-cols-3 gap-2 text-sm">
+        <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2 text-center">
+          <div class="text-xs text-slate-500">Total Beli</div>
+          <div class="font-mono font-bold text-emerald-300">${fmt(totalBuy)}</div>
+        </div>
+        <div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-2 text-center">
+          <div class="text-xs text-slate-500">Total Jual</div>
+          <div class="font-mono font-bold text-rose-300">${fmt(totalSell)}</div>
+        </div>
+        <div class="rounded-lg border border-slate-600 bg-slate-800/40 p-2 text-center">
+          <div class="text-xs text-slate-500">Net ${d.broker}</div>
+          <div class="font-mono font-bold ${netCls}">${totalNet>0?"+":""}${fmt(totalNet)}</div>
+        </div>
+      </div>
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs uppercase text-slate-500">
+          <th class="px-3 py-2">Ticker</th><th class="px-3 py-2 text-right">Harga</th>
+          <th class="px-3 py-2 text-right">Beli</th><th class="px-3 py-2 text-right">Jual</th>
+          <th class="px-3 py-2 text-right">Net</th><th class="px-3 py-2 text-right">Net Vol</th>
+          <th class="px-3 py-2 text-center">Frek B/J</th><th class="px-3 py-2">Tgl</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${d.broker_dir?.note?`<p class="mt-2 text-xs text-slate-500">💡 ${d.broker_dir.note}</p>`:""}
+    </div>`;
+}
+
+function brokerDirectoryHtml(d){
+  const cats=(d.categories||[]);
+  const catsHtml=cats.map((c)=>`
+    <div class="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+      <div class="flex items-center gap-2 text-sm font-semibold text-slate-200">
+        ${c.tags.includes("smart_money")?"🧠":"🛒"} ${c.label}
+      </div>
+      <p class="mt-1 text-xs text-slate-500">${c.desc}</p>
+    </div>`).join("");
+  const expl=(d.explain||[]).map((e)=>`
+    <div class="text-xs text-slate-400"><b class="text-slate-200">${e.term}:</b> ${e.def}</div>`).join("");
+  const rows=(d.brokers||[]).map((b)=>{
+    const isSmart=(b.tags||[]).includes("smart_money");
+    const issuers=(b.issuers||[]).length?`<span class="text-[10px] text-slate-500">afiliasi: ${b.issuers.join(", ")}</span>`:"";
+    return `<tr class="border-b border-slate-800 hover:bg-slate-800/40">
+      <td class="px-3 py-2 font-mono font-bold">${b.code}</td>
+      <td class="px-3 py-2 text-slate-300">${b.name}${brTypeChip({tags:b.tags,group:b.group})}</td>
+      <td class="px-3 py-2 text-xs text-slate-400">${b.group||"−"}</td>
+      <td class="px-3 py-2 text-xs text-slate-500">${issuers}${b.note?` ${b.note}`:""}</td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="rounded-xl border border-violet-500/40 bg-violet-500/5 p-4">
+      <h4 class="font-semibold text-slate-100">📖 Direktori Broker IDX — Smart Money vs Ritel</h4>
+      <p class="mt-1 text-xs text-slate-500">${d.note||""}</p>
+      <div class="mt-3 grid gap-2 md:grid-cols-2">${catsHtml}</div>
+      <div class="mt-3 space-y-1 rounded-lg bg-slate-950/60 p-3">${expl}</div>
+      <div class="mt-3 flex items-center gap-2 text-xs text-slate-500">
+        <span class="rounded bg-violet-500/20 px-2 py-0.5 font-bold text-violet-300">🧠 SMART MONEY</span> institusi/asing/BUMN/grup besar
+        <span class="rounded bg-amber-500/20 px-2 py-0.5 font-bold text-amber-300">🛒 RITEL</span> retail/online
+      </div>
+      <div class="mt-2 max-h-96 overflow-auto">
+        <table class="w-full text-sm">
+          <thead class="sticky top-0 bg-slate-900"><tr class="text-left text-xs uppercase text-slate-500">
+            <th class="px-3 py-2">Kode</th><th class="px-3 py-2">Broker</th><th class="px-3 py-2">Grup / Afiliasi</th><th class="px-3 py-2">Catatan</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function runBrokerActivity(){
+  const broker=$("#ba-broker").value.trim().toUpperCase()||"SS";
+  const days=+($("#ba-days").value)||7;
+  let universe=$("#ba-universe").value;
+  const max=Math.min(+($("#ba-max").value)||30,100);
+  const q=new URLSearchParams({broker,days:days,universe,max_tickers:max});
+  if(universe==="custom"){
+    const ts=($("#ba-tickers").value||"").split(",").map((t)=>t.trim().toUpperCase()).filter(Boolean);
+    if(!ts.length){setErr("ba-err","Isi tickers custom dulu (koma).");return;}
+    q.set("tickers",ts.join(","));q.set("universe","custom");
+  }
+  setErr("ba-err", null);
+  $("#ba-result").innerHTML=`<p class="text-sm text-slate-400">⏳ Menelusuri ${max} saham untuk broker ${broker}… (1 panggilan broker per saham, mungkin beberapa detik)</p>`;
+  try{
+    const d=await api(`/brokers/activity?${q}`);
+    const acts=d.activities||[];
+    $("#ba-meta").innerHTML=
+      `<b>${broker}</b> aktif di <b>${acts.length}</b>/${d.scanned} saham · ${d.start} → ${d.end} · grup: ${d.group} · kuota arjum: ${d.arjum_usage?d.arjum_usage.remaining:"?"}`+
+      (d.errors&&d.errors.length?` · ⚠️ ${d.errors.length} saham gagal fetch`:"");
+    $("#ba-result").innerHTML=brokerActivityCard(d);
+  }catch(e){
+    setErr("ba-err",e.message);
+    $("#ba-result").innerHTML="";
+  }
+}
+
+async function showBrokerDir(){
+  setErr("ba-err", null);
+  $("#ba-result").innerHTML=`<p class="text-sm text-slate-400">⏳ Memuat direktori broker…</p>`;
+  try{
+    const d=await api("/brokers/directory");
+    $("#ba-meta").innerHTML=`Direktori ${(d.brokers||[]).length} broker IDX — klasifikasi edukatif & indikatif.`;
+    $("#ba-result").innerHTML=brokerDirectoryHtml(d);
+  }catch(e){
+    setErr("ba-err",e.message);
+  }
+}
+
+$("#ba-run").addEventListener("click",runBrokerActivity);
+$("#ba-dir").addEventListener("click",showBrokerDir);
+$("#ba-universe").addEventListener("change",()=>{
+  $("#ba-custom-wrap").classList.toggle("hidden",$("#ba-universe").value!=="custom");
+});
+
 // ---------------------------------------------------------------- backtest
 async function runBacktest(){
   const body={

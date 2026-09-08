@@ -18,6 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from .alerts import format_alerts, send_telegram, send_webhook
 from .arjum import ArjumClient, ArjumAuthError, ArjumError
 from .backtest import backtest
+from .broker_activity import MAX_TICKERS_DEFAULT, MAX_TICKERS_LIMIT, broker_activity
+from .broker_dir import broker_info, directory as broker_directory, explain as broker_explain
 from .budget import arjum_budget
 from .config import settings
 from .models import BacktestParams, ScanParams, ScanResponse, StockVerdict
@@ -110,6 +112,8 @@ def info():
             "GET /stocks/{code}",
             "GET /brokers/{code}",
             "GET /broker-accumulation/{code}",
+            "GET /brokers/activity (cari aktivitas satu broker di banyak saham)",
+            "GET /brokers/directory (klasifikasi broker smart money vs ritel)",
             "GET /history/{code}",
             "POST /backtest",
             "GET/POST /api/alerts/run",
@@ -441,6 +445,64 @@ async def single_stock(
     result_dict = result.model_dump()
     result_dict["arjum_usage"] = arjum_budget.usage()
     return result_dict
+
+
+@app.get("/brokers/activity")
+async def broker_activity_endpoint(
+    request: Request,
+    broker: str = Query("SS", description="Kode broker yang dicari, e.g. SS"),
+    days: int = Query(7, ge=1, le=90, description="Rentang hari ke belakang"),
+    universe: str = Query("watchlist", description="watchlist | all | all_extra | mapped | mapped_extra | sector | custom"),
+    sector: Optional[str] = Query(None, description="Sector key saat universe=sector"),
+    tickers: str = Query("", description="Daftar ticker custom (universe=custom), koma"),
+    max_tickers: int = Query(MAX_TICKERS_DEFAULT, ge=1, le=MAX_TICKERS_LIMIT),
+):
+    """Aktivitas satu broker di banyak saham: beli/jual/net + harga, per periode."""
+    params = ScanParams(
+        tickers=[t.strip().upper() for t in tickers.split(",") if t.strip()] if tickers else [],
+        universe=universe,
+        sector=sector,
+        max_tickers=max_tickers,
+    )
+    client = _client_for(request)
+    try:
+        resolved, group = await _resolve_tickers(params, client)
+    except Exception:
+        await client.close()
+        raise
+    if not resolved:
+        await client.close()
+        raise HTTPException(status_code=400, detail="tickers kosong dan tidak ada universe terpilih")
+    try:
+        data = await broker_activity(resolved[:max_tickers], broker, days, client)
+    finally:
+        await client.close()
+    info = broker_info(broker)
+    return {
+        **data,
+        "group": group,
+        "broker_dir": info,
+        "arjum_usage": arjum_budget.usage(),
+    }
+
+
+@app.get("/brokers/directory")
+async def broker_directory_endpoint():
+    """Direktori broker IDX: klasifikasi smart money vs ritel + afiliasi grup."""
+    return {
+        "categories": [
+            {"key": k, **v} for k, v in {
+                "foreign": {"label": "Asing / Institusi Global", "tags": ["smart_money"], "desc": "Sekuritas milik grup keuangan global/regional — sering jadi sarana transaksi institusi asing."},
+                "bumn": {"label": "BUMN / Bank BUMN", "tags": ["smart_money"], "desc": "Sekuritas milik BUMN Indonesia — likuiditas besar, saluran transaksi institusi domestik."},
+                "conglomerate": {"label": "Grup Konglomerat Domestik", "tags": ["smart_money"], "desc": "Sekuritas milik grup usaha besar Indonesia — perhatikan afiliasi dengan emiten grup-nya."},
+                "online_retail": {"label": "Aplikasi Retail Online", "tags": ["retail"], "desc": "Aplikasi investasi ritel (Ajaib, Stockbit, dll) — dominan nasabah retail."},
+                "local": {"label": "Sekuritas Lokal / Ritel", "tags": ["retail"], "desc": "Sekuritas domestik kecil-menengah yang dominan melayani nasabah ritel."},
+            }.items()
+        ],
+        "brokers": broker_directory(),
+        "explain": broker_explain(),
+        "note": "Klasifikasi edukatif & indikatif (bukan daftar resmi BEI/OJK). Afiliasi grup bisa berubah — verifikasi sebelum keputusan investasi.",
+    }
 
 
 def _broker_filter(rows: list[dict], brokers: Optional[set[str]], top_n: int) -> list[dict]:
