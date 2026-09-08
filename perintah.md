@@ -86,6 +86,7 @@ For every asset where Layer A passes:
 
 - Sector assignment for the major/liquid IDX names lives in `app/universe.py` (curated map, ~250 tickers across Perbankan, Tambang, Energi, Konsumen, Farmasi & Kesehatan, Properti, Konstruksi, Infrastruktur, Telekomunikasi, Transportasi, Teknologi & Media, Retail, Otomotif, Material, Perkebunan, Lainnya). Unmapped tickers fall into "Lainnya".
 - The full IDX listing (code, name, market cap, turnover) comes from `GET /api/market-cap` (20 pages, cached 6h, ~20 arjum calls once) — used for `universe=all` with a market-cap prefilter + ticker cap so scans fit the serverless 60s window.
+- **Fallback saat kuota arjum habis / arjum down:** `fetch_universe` memakai snapshot statis SEMUA saham IDX — `app/data/idx_universe.json` (~844 saham dengan market cap nyata IDR dari TradingView screener, diregenerasi via `scripts/refresh_idx_universe.py` — 0 kuota arjum). Jadi kelompok **Top Market Cap tetap 300 saham** (top-up otomatis ke `max_tickers` walau filter 3T cuma ~294) dan **Kelompok ke-2 tetap terisi ~544 saham** — tidak lagi kosong/503 saat kuota habis.
 - **Kelompok ke-2 (`universe=all_extra`):** returns the IDX names BEYOND the top-300 group (same market-cap filter, sliced after `max_tickers`), so the remainder of the market can be scanned as its own group. `universe=mapped_extra` does the same for the static mapped list.
 - Seasonality is computed locally from multi-year yfinance history (0 quota), not the paid `/api/seasonal` endpoint.
 

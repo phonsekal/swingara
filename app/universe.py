@@ -3,13 +3,51 @@
 Sector assignment is a curated static map of the major/liquid IDX names (the
 market-cap API provides codes + market cap but no sector). Anything not mapped
 falls into "Lainnya". Groups are ordered for the UI.
+
+Fallback saat arjum down / kuota habis memakai snapshot statis SEMUA saham IDX
+(app/data/idx_universe.json, ~844 saham dengan market cap nyata dari TradingView)
+alih-alih peta sektor yang cuma ~153 nama — jadi kelompok "top market cap" tetap
+berisi 300 saham dan "kelompok ke-2" tetap berisi sisa pasar.
 """
 from __future__ import annotations
 
+import json
 import time
+from pathlib import Path
 from typing import Optional
 
 from .arjum import ArjumClient, ArjumError
+
+_DATA_DIR = Path(__file__).resolve().parent / "data"
+_STATIC_UNIVERSE: Optional[list[dict]] = None
+
+
+def static_universe_rows() -> list[dict]:
+    """Full IDX snapshot (TradingView): code/name/market_cap, sorted cap desc.
+
+    Lazy-loaded sekali; dipakai sebagai fallback saat arjum tidak tersedia.
+    """
+    global _STATIC_UNIVERSE
+    if _STATIC_UNIVERSE is None:
+        try:
+            with open(_DATA_DIR / "idx_universe.json", encoding="utf-8") as f:
+                data = json.load(f)
+            stocks = data.get("stocks") or []
+        except Exception as exc:
+            print(f"static universe load gagal: {exc}", flush=True)
+            stocks = []
+        _STATIC_UNIVERSE = [
+            {
+                "code": s["code"],
+                "name": s.get("name", ""),
+                "market_cap": float(s.get("market_cap") or 0.0),
+                "sector": group_of(s["code"]),
+            }
+            for s in stocks
+            if s.get("code")
+        ]
+        _STATIC_UNIVERSE.sort(key=lambda r: r["market_cap"], reverse=True)
+    return _STATIC_UNIVERSE
 
 # (key, label) — order controls the UI dropdown
 SECTORS: list[tuple[str, str]] = [
@@ -180,7 +218,10 @@ async def fetch_universe(
 ) -> list[dict]:
     """Full IDX list from /api/market-cap (cached 6h), sorted by market cap desc.
 
-    Falls back to the static sector map when the arjum client/key is unavailable.
+    Falls back to the full static IDX snapshot (app/data/idx_universe.json, ~844
+    saham dengan market cap nyata) when the arjum client/key is unavailable —
+    jadi "top market cap" tetap 300 saham dan "kelompok ke-2" tetap terisi meski
+    kuota harian arjum habis.
     """
     now = time.monotonic()
     cache = _universe_cache
@@ -197,8 +238,9 @@ async def fetch_universe(
                     pages.append(await client.market_cap(page=p, per_page=50))
                 rows = [r for pg in pages for r in (pg.get("data") or [])]
             except ArjumError as exc:
-                # arjum down / kuota habis -> jangan 500, fallback ke peta statis
-                print(f"fetch_universe fallback ke peta statis: {exc}", flush=True)
+                # arjum down / kuota habis -> jangan 500, fallback ke snapshot
+                # statis SEMUA saham IDX (app/data/idx_universe.json, ~844)
+                print(f"fetch_universe fallback ke snapshot statis: {exc}", flush=True)
                 rows = []
             if rows:
                 cache["rows"] = rows
@@ -206,11 +248,9 @@ async def fetch_universe(
 
     rows = cache["rows"]
     if not rows:
-        # no key / empty -> static map only
-        return [
-            {"code": c, "name": "", "market_cap": 0.0, "sector": group_of(c)}
-            for c in all_mapped_tickers()
-        ][:max_tickers]
+        # no key / arjum error / kuota habis -> snapshot statis SEMUA saham IDX
+        # (dengan market cap nyata), bukan cuma peta sektor ~153 nama.
+        rows = static_universe_rows()
 
     out = []
     for r in rows:
@@ -228,4 +268,23 @@ async def fetch_universe(
                 }
             )
     out.sort(key=lambda x: x["market_cap"], reverse=True)
+
+    # top-up: kalau filter market cap menyisakan < max_tickers (mis. kuota habis
+    # dan snapshot statis cuma punya ~294 saham cap>=3T), isi sisa slot dengan
+    # kapitalisasi terbesar berikutnya supaya kelompok "top market cap" tetap 300.
+    if len(out) < max_tickers and len(rows) > len(out):
+        in_out = {x["code"] for x in out}
+        rest = [
+            {
+                "code": str(r.get("code", "")).upper(),
+                "name": r.get("name", ""),
+                "market_cap": float(r.get("market_cap") or 0.0),
+                "sector": group_of(str(r.get("code", "")).upper()),
+            }
+            for r in rows
+            if str(r.get("code", "")).upper() and str(r.get("code", "")).upper() not in in_out
+        ]
+        rest.sort(key=lambda x: x["market_cap"], reverse=True)
+        out.extend(rest[: max_tickers - len(out)])
+
     return out[:max_tickers]
