@@ -70,6 +70,14 @@ async def resolve_tickers(
             max_tickers=params.max_tickers + 5000,
         )
         tickers = [u["code"] for u in uni_full[params.max_tickers:]]
+        if not tickers:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Kelompok ke-2 kosong: universe penuh (963 saham) tidak tersedia — "
+                    "kemungkinan kuota harian arjum habis. Coba lagi besok / tambah kuota."
+                ),
+            )
         return tickers, f"all_extra({len(tickers)})"
 
     if params.universe in ("mapped", "mapped_extra"):
@@ -87,6 +95,14 @@ async def resolve_tickers(
         )
         top = {u["code"] for u in uni[: params.max_tickers]}
         tickers = [c for c in all_mapped_tickers() if c not in top]
+        if not tickers:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Kelompok ke-2 mapped kosong: universe penuh tidak tersedia — "
+                    "kemungkinan kuota harian arjum habis. Coba lagi besok / tambah kuota."
+                ),
+            )
         return tickers, f"mapped_extra({len(tickers)})"
 
     watchlist = [t.strip().upper() for t in settings.default_watchlist if t.strip()]

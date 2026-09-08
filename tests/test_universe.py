@@ -114,3 +114,27 @@ def test_all_extra_returns_codes_beyond_top_n(monkeypatch):
     assert tickers == codes[10:]  # the 15 codes beyond the top-10 group
     assert label.startswith("all_extra")
     assert set(tickers).isdisjoint(set(codes[:10]))
+
+
+def test_all_extra_empty_raises_clear_503(monkeypatch):
+    """Kelompok ke-2 kosong (fallback statis saat kuota habis) -> 503 jelas, bukan 400 membingungkan."""
+    from app.models import ScanParams
+    from app import resolve_tickers
+    from fastapi import HTTPException
+
+    async def fake_fetch_universe(client, min_market_cap_idr=0.0, max_tickers=300):
+        # fallback statis: hanya 50 nama < max_tickers -> slice [300:] kosong
+        return [{"code": f"T{i:04d}", "name": "", "market_cap": 0.0, "sector": "Lainnya"} for i in range(1, 51)]
+
+    monkeypatch.setattr(resolve_tickers, "fetch_universe", fake_fetch_universe)
+
+    async def go():
+        params = ScanParams(universe="all_extra", max_tickers=300, min_market_cap_idr=0.0)
+        return await resolve_tickers.resolve_tickers(params, object())
+
+    try:
+        asyncio.run(go())
+        assert False, "harusnya raise HTTPException 503"
+    except HTTPException as exc:
+        assert exc.status_code == 503
+        assert "kuota" in exc.detail.lower()

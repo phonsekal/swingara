@@ -199,7 +199,9 @@ loadUniverse();
 function scanBody(){
   const universe=$("#sc-universe").value;
   const sector=["custom","watchlist","all","all_extra"].includes(universe)?null:universe;
-  let mappedUniverse = universe==="custom" ? "watchlist" : universe;
+  // backend ScanParams.universe hanya menerima literal tertentu; kelompok sektor
+  // harus dikirim sebagai universe="sector" + sector=<key> (bukan nama sektor).
+  let mappedUniverse = universe==="custom" ? "watchlist" : (sector ? "sector" : universe);
   return {
     tickers:universe==="custom"
       ? ($("#sc-tickers").value||SC_DEFAULTS.tickers).split(",").map((t)=>t.trim().toUpperCase()).filter(Boolean)
