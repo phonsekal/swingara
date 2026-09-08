@@ -50,20 +50,36 @@ async def resolve_tickers(
             raise HTTPException(status_code=400, detail=f"Sektor tidak dikenal: {params.sector}")
         return tickers, f"sector:{params.sector}"
 
-    if params.universe == "all":
+    if params.universe in ("all", "all_extra"):
         if client is None:
-            raise HTTPException(status_code=400, detail="universe=all perlu client arjum (API key)")
+            raise HTTPException(status_code=400, detail=f"universe={params.universe} perlu client arjum (API key)")
+        # fetch the whole list once (cached 6h), then split: top-N is the primary
+        # group, everything after it is the "kelompok ke-2" (sisa saham).
         uni = await fetch_universe(
             client,
             min_market_cap_idr=params.min_market_cap_idr,
-            max_tickers=params.max_tickers,
+            max_tickers=params.max_tickers + 5000,
         )
-        tickers = [u["code"] for u in uni]
-        return tickers, f"all({len(tickers)})"
+        if params.universe == "all":
+            tickers = [u["code"] for u in uni[: params.max_tickers]]
+            return tickers, f"all({len(tickers)})"
+        tickers = [u["code"] for u in uni[params.max_tickers:]]
+        return tickers, f"all_extra({len(tickers)})"
 
-    if params.universe == "mapped":
-        tickers = all_mapped_tickers()
-        return tickers, "mapped"
+    if params.universe in ("mapped", "mapped_extra"):
+        if params.universe == "mapped":
+            return all_mapped_tickers(), "mapped"
+        # sisa mapped universe yang tidak masuk kelompok top-N "all".
+        if client is None:
+            raise HTTPException(status_code=400, detail="universe=mapped_extra perlu client arjum (API key)")
+        uni = await fetch_universe(
+            client,
+            min_market_cap_idr=params.min_market_cap_idr,
+            max_tickers=params.max_tickers + 5000,
+        )
+        top = {u["code"] for u in uni[: params.max_tickers]}
+        tickers = [c for c in all_mapped_tickers() if c not in top]
+        return tickers, f"mapped_extra({len(tickers)})"
 
     watchlist = [t.strip().upper() for t in settings.default_watchlist if t.strip()]
     if not watchlist:

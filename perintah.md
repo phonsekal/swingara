@@ -33,7 +33,9 @@ You are an expert Quantitative Financial Engineer specializing in the Indonesian
 
 ### Layer A: The Technical Filter (Swing Pullback Structure)
 - **Trend regime:** validated uptrend where `Current Close > EMA 20` AND `EMA 20 > SMA 50`.
-- **Discount-zone proximity:** `min(close, low)` is near or touching the Lower Bollinger Band (20 periods, 2 standard deviations) within `touch_tolerance_pct` (default 1%).
+- **Discount-zone proximity:** `min(close, low)` is near or touching the Lower Bollinger Band (20 periods, 2 standard deviations) within `touch_tolerance_pct` (default 2%).
+- **Multi-method default:** the live scan does NOT require picking a method — every ticker is evaluated under all four named Layer A methods (`strict_strong_buy`, `buy_quality_tighter`, `band_proximity_main`, `wide_candidate_pool`) and the per-method results are returned (`method_results`). Layer A passes if ANY method passes; Layer B/C still run once per ticker with base params.
+- **Entry confirmation (backtest-backed):** every method requires the pullback to have STARTED turning before entry — `close > EMA5` AND a green day (`close > open`). Measured on 43 liquid IDX names over 5 years (2021–2026, TP5/10 + SL5 + ≤15-day hold, fee 0.25%/side + slippage), buying the bare band touch loses money (PF 0.7–0.9 across all tolerances), while adding the confirmation flips the deep-pullback zone (pullback ≥ 5%, RSI ≤ 65, low ≤ 2.5% of the lower band) to PF 1.27 / win 50% / avg +0.55% per trade / maxDD 7.2% (78 trades). Method ladder: strict (pull ≥ 6%, RSI ≤ 55) PF 1.00; quality (pull ≥ 5%, RSI ≤ 60) PF 1.19; main (pull ≥ 5%, RSI ≤ 65) PF 1.27; wide (pull ≥ 5%, RSI ≤ 70, cheaper/lower-liquidity allowed) PF 1.06.
 - **Liquidity threshold:** 20-day average transaction value (`mean(close * volume)`) strictly greater than `min_liquidity_idr` (default IDR 5 Billion).
 - **Quality guards (optimization over v1):**
   - Penny-stock filter: skip tickers below `min_price` (default Rp 50) — avoids untradeable micro-caps.
@@ -84,12 +86,13 @@ For every asset where Layer A passes:
 
 - Sector assignment for the major/liquid IDX names lives in `app/universe.py` (curated map, ~250 tickers across Perbankan, Tambang, Energi, Konsumen, Farmasi & Kesehatan, Properti, Konstruksi, Infrastruktur, Telekomunikasi, Transportasi, Teknologi & Media, Retail, Otomotif, Material, Perkebunan, Lainnya). Unmapped tickers fall into "Lainnya".
 - The full IDX listing (code, name, market cap, turnover) comes from `GET /api/market-cap` (20 pages, cached 6h, ~20 arjum calls once) — used for `universe=all` with a market-cap prefilter + ticker cap so scans fit the serverless 60s window.
+- **Kelompok ke-2 (`universe=all_extra`):** returns the IDX names BEYOND the top-300 group (same market-cap filter, sliced after `max_tickers`), so the remainder of the market can be scanned as its own group. `universe=mapped_extra` does the same for the static mapped list.
 - Seasonality is computed locally from multi-year yfinance history (0 quota), not the paid `/api/seasonal` endpoint.
 
 # 7. Frontend UI (Tailwind CSS)
 
 Single-page dark-themed UI served at `/` with four tabs:
-- **Scanner** — universe/sector dropdown (Manual / Watchlist / Semua Saham / per-sector), optional broker filter chips (SS/YP/CC/NI/BK/ZP), strategy params with **optimal defaults + reset button**, toggles for seasonality & news, verdict-colored result cards with Layer A/B/C breakdowns, trading blueprint, 12-month seasonality bar chart and news/corp-action panel — all rendered **realtime** from the NDJSON stream with a live group-trend panel (progress bar, verdict counts, avg RSI, avg pullback, Layer-A pass count).
+- **Scanner** — universe/sector dropdown (Manual / Watchlist / Semua Saham / Semua Saham Kelompok ke-2 / per-sector), optional broker filter chips (SS/YP/CC/NI/BK/ZP), strategy params with **optimal defaults + reset button**, toggles for seasonality, news & weekly chart, verdict-colored result cards with Layer A/B/C breakdowns + per-method Layer A chips, trading blueprint, 12-month seasonality bar chart + **real 5-year monthly close chart**, news/corp-action panel (newest first), and a **weekly candlestick chart with Bollinger Band, MACD(12,26,9) & EMA5/EMA21 with golden-cross alert** — all rendered **realtime** from the NDJSON stream with a live group-trend panel (progress bar, verdict counts, avg RSI, avg pullback, Layer-A pass count, per-method pass summary).
 - **Broker Flow** — per-ticker broker summary table (Buy/Sell/Net) with optional broker filter and MATCHED badge.
 - **Backtest** — run the Layer A backtest and show metrics cards, equity curve SVG, and the trade list.
 - **Alerts** — trigger the alert scan manually, show channel status and the message preview.
@@ -103,6 +106,6 @@ Single-page dark-themed UI served at `/` with four tabs:
 
 # 8. Backtesting
 
-- Backtest the **Layer A** rules causally over historical bars (yfinance only — zero arjum quota): entry at next-bar open (with slippage), exits at TP1 (50%) / TP2 / stop / structural lower-band break / max-hold timeout; fees per side (default 0.25%).
+- Backtest the **Layer A** rules causally over historical bars (yfinance only — zero arjum quota): entry at next-bar open (with slippage), exits at TP1 (50%) / TP2 / stop / structural lower-band break / max-hold timeout; fees per side (default 0.25%). The backtest engine mirrors the live Layer A gate exactly, including the band-gap cap and the EMA5/green-day confirmation (`scripts/backtest_methods.py` reruns all four calibrated methods on cached 5-year history).
 - Metrics: n trades, win rate, avg return, profit factor, max drawdown, avg hold days, total return; per-trade log + equity curve for charting.
 - Layer B/C are market-regime checks (recent 10–20 days) and are intentionally excluded from long-window backtests — historical broker data is not available.

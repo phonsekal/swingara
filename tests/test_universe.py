@@ -49,3 +49,28 @@ def test_fetch_universe_falls_back_to_static_map_without_key():
     uni = asyncio.run(go())
     assert len(uni) > 100
     assert all("code" in u and "sector" in u for u in uni)
+
+
+def test_all_extra_returns_codes_beyond_top_n(monkeypatch):
+    """universe=all_extra must contain the stocks NOT in the top-N group."""
+    from app.models import ScanParams
+    from app import resolve_tickers
+
+    codes = [f"T{i:04d}" for i in range(1, 26)]  # 25 codes total
+
+    async def fake_fetch_universe(client, min_market_cap_idr=0.0, max_tickers=300):
+        return [{"code": c, "name": "", "market_cap": 1e12, "sector": "Lainnya"} for c in codes]
+
+    monkeypatch.setattr(resolve_tickers, "fetch_universe", fake_fetch_universe)
+
+    class DummyClient:
+        pass
+
+    async def go():
+        params = ScanParams(universe="all_extra", max_tickers=10, min_market_cap_idr=0.0)
+        return await resolve_tickers.resolve_tickers(params, DummyClient())
+
+    tickers, label = asyncio.run(go())
+    assert tickers == codes[10:]  # the 15 codes beyond the top-10 group
+    assert label.startswith("all_extra")
+    assert set(tickers).isdisjoint(set(codes[:10]))

@@ -8,3 +8,4 @@ __pycache__/
 automated_trading_plan.txt
 .vercel
 .env*
+.DS_Store

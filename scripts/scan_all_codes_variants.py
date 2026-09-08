@@ -46,43 +46,51 @@ from app.universe import all_mapped_tickers, fetch_universe, group_of
 METHODS = [
     {
         "name": "strict_strong_buy",
-        "description": "Uptrend + very liquid + close within 2% of lower band + RSI <= 55 + pullback >= 4%. Intended as tight conviction-only output; can be empty on many days.",
+        "description": "Conviction-only: uptrend + pullback >= 6% + low dekat lower band (<= 1.5%) + RSI <= 55 + konfirmasi berbalik (close > EMA5, hari hijau). Sering kosong — hanya setup paling dalam.",
         "min_liquidity_idr": 5_000_000_000.0,
         "rsi_max": 55.0,
-        "pullback_pct": 4.0,
-        "touch_tolerance_pct": 1.0,
-        "gap_max_pct": 2.0,
+        "pullback_pct": 6.0,
+        "touch_tolerance_pct": 1.5,
+        "gap_max_pct": 4.0,
         "min_price": 100.0,
+        "require_close_above_ema5": True,
+        "require_green_day": True,
     },
     {
         "name": "buy_quality_tighter",
-        "description": "Same structure but RSI <= 60, pullback >= 3%, band gap <= 3%. Meant for quality buy candidates rather than only the strongest setups.",
+        "description": "Quality buy: uptrend + pullback >= 5% + low <= 2% dari lower band + RSI <= 60 + konfirmasi berbalik (PF 1.19, 5 thn, 43 saham).",
         "min_liquidity_idr": 5_000_000_000.0,
         "rsi_max": 60.0,
-        "pullback_pct": 3.0,
-        "touch_tolerance_pct": 1.0,
-        "gap_max_pct": 3.0,
+        "pullback_pct": 5.0,
+        "touch_tolerance_pct": 2.0,
+        "gap_max_pct": 5.0,
         "min_price": 100.0,
+        "require_close_above_ema5": True,
+        "require_green_day": True,
     },
     {
         "name": "band_proximity_main",
-        "description": "Lower-band proximity is the main swing idea. RSI <= 65, pullback >= 2%, band gap <= 3%, liquid, uptrend. Good balance between “too empty” and “too noisy”.",
+        "description": "Main method: pullback >= 5% + low <= 2.5% dari lower band + RSI <= 65 + konfirmasi berbalik — sweet spot backtest (PF 1.27, win 50%, 5 thn).",
         "min_liquidity_idr": 5_000_000_000.0,
         "rsi_max": 65.0,
-        "pullback_pct": 2.0,
-        "touch_tolerance_pct": 1.0,
-        "gap_max_pct": 3.0,
+        "pullback_pct": 5.0,
+        "touch_tolerance_pct": 2.5,
+        "gap_max_pct": 5.0,
         "min_price": 100.0,
+        "require_close_above_ema5": True,
+        "require_green_day": True,
     },
     {
         "name": "wide_candidate_pool",
-        "description": "Broadest-looking screen in this set: lower-priced names allowed, lower liquidity floor, RSI <= 70, pullback >= 1%, band gap <= 4%. Useful for spotting more candidates to eyeball, not a conviction filter.",
+        "description": "Broad candidate pool: pullback >= 5% + low <= 2.5% dari lower band + RSI <= 70, harga murah & likuiditas lebih rendah boleh masuk (PF 1.05).",
         "min_liquidity_idr": 1_000_000_000.0,
         "rsi_max": 70.0,
-        "pullback_pct": 1.0,
-        "touch_tolerance_pct": 1.0,
-        "gap_max_pct": 4.0,
+        "pullback_pct": 5.0,
+        "touch_tolerance_pct": 2.5,
+        "gap_max_pct": 6.0,
         "min_price": 50.0,
+        "require_close_above_ema5": True,
+        "require_green_day": True,
     },
 ]
 
@@ -90,16 +98,18 @@ METHODS = [
 def layer_a_passes(
     candles: list[dict],
     params: ScanParams,
-    gap_max_pct: float,
+    method: dict,
 ) -> tuple[bool, dict]:
-    """Pure Layer A check plus an explicit band-gap cap.
+    """Pure Layer A check for one named method (band-gap cap + confirmation).
 
-    The band-gap cap is the “methods” knob: it lets us express different
-    philosophies without rewriting the scan each time.
+    Mirrors app/scanner._layer_a under the multi-method path: same gates,
+    including the backtest-backed entry confirmation (close > EMA5 / green day).
     """
+    gap_max_pct = method.get("gap_max_pct", 0.0)
     close = np.asarray([c["close"] for c in candles], dtype=float)
     high = np.asarray([c["high"] for c in candles], dtype=float)
     low = np.asarray([c["low"] for c in candles], dtype=float)
+    open_ = np.asarray([c["open"] for c in candles], dtype=float)
     volume = np.asarray([c["volume"] for c in candles], dtype=float)
     n = len(candles)
     if n < int(params.min_history_days):
@@ -107,6 +117,7 @@ def layer_a_passes(
 
     ema20 = ema(close, params.ema_period)
     sma50 = sma(close, params.sma_period)
+    ema5 = ema(close, 5)
     _, _, lower = bollinger(close, params.bb_period, params.bb_std)
     rsi14 = rsi(close, 14)
 
@@ -114,14 +125,22 @@ def layer_a_passes(
     price = float(close[last])
     e20 = float(ema20[last])
     s50 = float(sma50[last])
+    e5 = float(ema5[last])
     lb = float(lower[last])
     r = float(rsi14[last])
     liq = float(avg_transaction_value(close, volume, 20))
     pull = float(pullback_pct(close, high, 20))
+    open_last = float(open_[last])
 
     band_gap = None
     if lb and lb > 0:
         band_gap = (price - lb) / lb * 100.0
+
+    confirmation_ok = True
+    if method.get("require_close_above_ema5"):
+        confirmation_ok = confirmation_ok and not np.isnan(e5) and price > e5
+    if method.get("require_green_day"):
+        confirmation_ok = confirmation_ok and price > open_last
 
     passed = all([
         price > e20 > s50,
@@ -131,6 +150,7 @@ def layer_a_passes(
         (params.rsi_max <= 0 or r < params.rsi_max),
         (params.pullback_pct <= 0 or pull >= params.pullback_pct),
         band_gap is not None and band_gap <= gap_max_pct,
+        confirmation_ok,
     ])
     return passed, {
         "close": round(price, 0),
@@ -145,7 +165,7 @@ def layer_a_passes(
     }
 
 
-async def run_all(*, params: ScanParams, gap_max_pct: float) -> list[dict]:
+async def run_all(*, params: ScanParams, method: dict) -> list[dict]:
     """Scan a wide universe through yfinance Layer A only.
 
     Uses the mapped list as a first pass, then falls back to the wider
@@ -192,7 +212,7 @@ async def run_all(*, params: ScanParams, gap_max_pct: float) -> list[dict]:
                 for idx, o, h, l, c, v in zip(df.index, _col("Open"), high, low, close, volume)
             ]
 
-            passed, la = layer_a_passes(candles, params, gap_max_pct)
+            passed, la = layer_a_passes(candles, params, method)
             results.append({"ticker": code, "verdict": "PASS" if passed else "REJECTED", "layer_a": la})
         except Exception as exc:  # noqa: BLE001
             import traceback
@@ -241,7 +261,7 @@ async def run_all(*, params: ScanParams, gap_max_pct: float) -> list[dict]:
                     for idx, o, h, l, c, v in zip(df.index, _col("Open"), high, low, close, volume)
                 ]
 
-                passed, la = layer_a_passes(candles, params, gap_max_pct)
+                passed, la = layer_a_passes(candles, params, method)
                 results.append({"ticker": code, "verdict": "PASS" if passed else "REJECTED", "layer_a": la})
                 seen.add(code.upper())
             except Exception as exc:  # noqa: BLE001
@@ -331,7 +351,7 @@ async def main() -> None:
             portfolio_idr=100_000_000.0,
         )
 
-        results = await run_all(params=params, gap_max_pct=method.get("gap_max_pct", 3.0))
+        results = await run_all(params=params, method=method)
         summary = summarize(results)
 
         print("\n=== METHOD:", method["name"], "===")

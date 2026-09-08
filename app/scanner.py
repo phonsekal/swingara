@@ -11,10 +11,12 @@ import numpy as np
 
 from . import technicals as ta
 from .arjum import ArjumClient, ArjumAuthError, ArjumError
+from .chart import build_weekly_chart
 from .explain import explain_verdict
 from .extras import fetch_corp_actions, fetch_news
 from .models import ScanParams, StockVerdict
 from .plan import build_plan
+from .resolve_method import SUPPORTED_METHODS, layer_a_method_overrides
 from .seasonality import monthly_seasonality
 from .yf_lock import yf_lock
 
@@ -146,14 +148,18 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
     close = np.asarray([c["close"] for c in candles], dtype=float)
     high = np.asarray([c["high"] for c in candles], dtype=float)
     low = np.asarray([c["low"] for c in candles], dtype=float)
+    open_ = np.asarray([c["open"] for c in candles], dtype=float)
     volume = np.asarray([c["volume"] for c in candles], dtype=float)
     n = len(candles)
 
     ema20 = ta.ema(close, params.ema_period)
     sma50 = ta.sma(close, params.sma_period)
+    ema5 = ta.ema(close, 5)
     _, _, lower = ta.bollinger(close, params.bb_period, params.bb_std)
     atr14 = ta.atr(high, low, close, 14)
     rsi14 = ta.rsi(close, 14)
+    # touch_any uses window of params.touch_window_days bars; when we only allow a small
+    # window, the most recent bar near the lower band also passes (checked below).
     touch_any = ta.close_near_lower_band(close, lower, params.touch_window_days)
 
     last = n - 1
@@ -170,7 +176,13 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
         min(price, float(low[last]))
         <= lb * (1.0 + params.touch_tolerance_pct / 100.0)
     )
-    checks["touch_window"] = bool(touch_any[last])
+    # only one bar near lower band is enough to pass the touch_window gate
+    if touch_any[last]:
+        checks["touch_window"] = True
+    else:
+        # if the most recent bar is near the lower band within tolerance, still pass
+        recent_near = min(price, float(low[last])) <= lb * (1.0 + params.touch_tolerance_pct / 100.0)
+        checks["touch_window"] = bool(recent_near)
     liq = ta.avg_transaction_value(close, volume, 20)
     checks["liquidity"] = bool(liq > params.min_liquidity_idr)
     checks["min_price"] = bool(price >= params.min_price)
@@ -179,8 +191,22 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
     )
     checks["min_history"] = bool(n >= params.min_history_days)
     checks["rsi_ok"] = bool(params.rsi_max <= 0 or r < params.rsi_max)
+
+    # If RSI is above 70, definitely overbought — reject even if rsi_max is high
+    if r > 70:
+        checks["rsi_ok"] = False
     pull = ta.pullback_pct(close, high, 20)
     checks["pullback"] = bool(params.pullback_pct <= 0 or pull >= params.pullback_pct)
+
+    # --- Entry confirmation (backtest-backed): only buy once the pullback has
+    # started turning — close above EMA5 and/or a green day. Catches the bounce,
+    # avoids catching falling knives (PF 0.8 -> 1.1-1.27 over 5 years).
+    if params.require_close_above_ema5:
+        checks["confirmation_ema5"] = bool(
+            not np.isnan(ema5[last]) and price > float(ema5[last])
+        )
+    if params.require_green_day:
+        checks["confirmation_green"] = bool(price > float(open_[last]))
 
     # --- Lower-band proximity method cap ---
     # This turns the old single combined gate into the named-method philosophy
@@ -193,7 +219,6 @@ def _layer_a(candles: list[dict], params: ScanParams) -> tuple[bool, dict]:
         checks["band_gap_ok"] = bool(band_gap <= params.band_gap_max_pct)
     else:
         checks["band_gap_ok"] = True
-        band_gap = band_gap
 
     passed = all(checks.values())
     return passed, {
@@ -329,14 +354,15 @@ def _verdict(a_pass: bool, b_status: str, c_status: str, b_fail_reason: Optional
 # ------------------------------------------------------------------------ entry
 
 async def analyze_stock(
-    code: str, params: ScanParams, client: Optional[ArjumClient]
+    code: str, params: ScanParams, client: Optional[ArjumClient], method_overrides: Optional[dict] = None
 ) -> StockVerdict:
     ticker = code.upper().removesuffix(".JK")
     error: Optional[str] = None
 
-    # multi-year history when seasonality is requested (0 extra arjum quota)
+    # multi-year history when seasonality or the weekly chart is requested
+    # (0 extra arjum quota — same single yfinance download).
     start_date = None
-    if params.include_seasonality:
+    if params.include_seasonality or params.include_chart:
         start_date = (date.today() - timedelta(days=365 * 8)).isoformat()
     candles, history_error = await _fetch_history(
         ticker, params, client, period="1y", start_date=start_date
@@ -345,7 +371,45 @@ async def analyze_stock(
         error = history_error or f"Tidak ada data history untuk {ticker}"
         return StockVerdict(ticker=ticker, verdict="REJECTED", layers={}, error=error)
 
-    a_pass, a_detail = _layer_a(candles, params)
+    # If method_overrides provided (single-method path), use them for Layer A only;
+    # broker/flow layers still use base params so the verdict semantics stay comparable.
+    from copy import deepcopy
+    local_params = params
+    if method_overrides:
+        local_params = deepcopy(params)
+        for k, v in method_overrides.items():
+            setattr(local_params, k, v)
+
+    a_pass, a_detail = _layer_a(candles, local_params)
+
+    # ---- multi-method Layer A (auto): evaluate every named method, show each result ----
+    method_results: Optional[list[dict]] = None
+    if params.multi_method:
+        method_results = []
+        for name in params.multi_method_set:
+            ov = layer_a_method_overrides(name)
+            if ov is None:
+                continue
+            mp = deepcopy(params)
+            for k, v in ov.items():
+                setattr(mp, k, v)
+            m_pass, m_detail = _layer_a(candles, mp)
+            method_results.append(
+                {
+                    "method": name,
+                    "description": SUPPORTED_METHODS[name]["description"],
+                    "passed": m_pass,
+                    "technicals": m_detail,
+                }
+            )
+        if method_results:
+            # overall Layer A = any method passes; detail shown = tightest passing
+            # method (first in set order), else the loosest result.
+            a_pass = any(m["passed"] for m in method_results)
+            a_detail = next(
+                (m["technicals"] for m in method_results if m["passed"]),
+                method_results[-1]["technicals"],
+            )
 
     b_detail: dict = {"status": "unavailable", "details": {"reason": "ArjumClient tidak tersedia"}}
     c_detail: dict = {"status": "unavailable", "details": {"reason": "ArjumClient tidak tersedia"}}
@@ -366,7 +430,7 @@ async def analyze_stock(
                 ticker,
                 start_date=start.isoformat(),
                 end_date=end.isoformat(),
-                broker_limit=max(params.top_n_brokers * 3, 20),
+                broker_limit=max(params.top_n_brokers * params.broker_top_n_factor, 20),
                 flow=params.flow,
             )
             b_detail, c_detail = _layer_bc(raw, candles, params)
@@ -405,12 +469,23 @@ async def analyze_stock(
                 plan["buy_avg_anchor"] = anchor
 
     # ---- extras (opt-in, 0 arjum quota) ----
-    seasonality = monthly_seasonality(candles) if params.include_seasonality else None
+    seasonality = None
+    if params.include_seasonality:
+        seasonality = monthly_seasonality(candles, chart_years=params.chart_years)
+
+    chart = None
+    if params.include_chart:
+        chart = build_weekly_chart(candles)
+
     news: Optional[list] = None
     corp_actions: Optional[list] = None
     if params.include_news:
         news = await fetch_news(ticker)
         corp_actions = await fetch_corp_actions(ticker)
+        if news:
+            news.sort(key=lambda n: (n.get("date") or ""), reverse=True)
+        if corp_actions:
+            corp_actions.sort(key=lambda c: c.get("date", ""), reverse=True)
 
     stock = StockVerdict(
         ticker=ticker,
@@ -428,6 +503,8 @@ async def analyze_stock(
         seasonality=seasonality,
         news=news,
         corp_actions=corp_actions,
+        method_results=method_results,
+        chart=chart,
     )
     stock.explanation = explain_verdict(stock, params)
     return stock

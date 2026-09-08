@@ -26,7 +26,9 @@ from .resolve_method import default_method_params, list_methods, is_valid_method
 
 def _band_gap_max_pct_for(*, method: Optional[str]) -> float:
     """Shared helper: 3.0 for the four known Layer A methods, 0.0 otherwise."""
-    return 3.0 if is_valid_method(method) else 0.0, is_valid_method
+    return 3.0 if is_valid_method(method) else 0.0
+
+
 from .scanner import analyze_stock
 from .resolve_tickers import resolve_tickers
 from .universe import SECTORS, all_mapped_tickers, fetch_universe, group_of, sector_tickers, all_mapped_tickers_by_market_cap_desc
@@ -176,6 +178,10 @@ async def _run_scan(request: Request, params: ScanParams, *, use_default_method:
             await client.close()
             raise HTTPException(status_code=400, detail=desc or "method tidak diketahui")
         params = mp
+    elif not params.layer_a_method:
+        # Default: no method selection needed — every scanned stock is evaluated
+        # under ALL named Layer A methods and the per-method results are returned.
+        params.multi_method = True
 
     client_key = _resolve_key(request)
     sem = asyncio.Semaphore(settings.max_concurrency)
@@ -266,8 +272,6 @@ async def scan_get(
         layer_a_method=layer_a_method,
         band_gap_max_pct=0.0,
     )
-    if not layer_a_method and universe in ("mapped", "watchlist"):
-        params.layer_a_method = "band_proximity_main"
     if params.layer_a_method:
         params.band_gap_max_pct = 3.0
     return await _run_scan(request, params, use_default_method=True)
@@ -292,8 +296,6 @@ async def scan_get_sector_tickers(
 
 @app.post("/scan")
 async def scan_post(request: Request, params: ScanParams):
-    if not params.layer_a_method and params.universe in ("mapped", "watchlist"):
-        params.layer_a_method = "band_proximity_main"
     params.band_gap_max_pct = _band_gap_max_pct_for(method=params.layer_a_method)
     return await _run_scan(request, params, use_default_method=True)
 
@@ -318,6 +320,8 @@ async def scan_get_stream_sector_tickers(
 async def _scan_stream(request: Request, params: ScanParams):
     """NDJSON stream: meta -> one result line per ticker -> done. Powers the UI's
     realtime group-trend rendering."""
+    if not params.layer_a_method:
+        params.multi_method = True  # default: evaluate all Layer A methods, no pick needed
     stream_order: list[str] | None = None
     if params.universe == "mapped":
         stream_order = all_mapped_tickers_by_market_cap_desc()
@@ -346,13 +350,22 @@ async def _scan_stream(request: Request, params: ScanParams):
             {"type": "meta", "total": len(_tickers), "group": group, "tickers": _tickers, "params": params.model_dump(exclude={"tickers"})}
         ) + "\n"
         counts: dict[str, int] = {}
+        method_counts: dict[str, dict] = {}
         try:
             for coro in asyncio.as_completed([one(c) for c in _tickers]):
                 r = await coro
                 counts[r.verdict] = counts.get(r.verdict, 0) + 1
+                for m in r.method_results or []:
+                    name = m["method"]
+                    entry = method_counts.setdefault(name, {"pass": 0, "total": 0})
+                    entry["total"] += 1
+                    if m["passed"]:
+                        entry["pass"] += 1
                 yield json.dumps({"type": "result", "ticker": r.ticker, "result": r.model_dump()}) + "\n"
         finally:
             await client.close()
+        if method_counts:
+            yield json.dumps({"type": "method_summary", "methods": method_counts}) + "\n"
         warnings: list[str] = []
         if not _resolve_key(request):
             warnings.append(

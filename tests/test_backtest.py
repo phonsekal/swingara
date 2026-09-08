@@ -16,6 +16,7 @@ def _bt_params(**overrides) -> BacktestParams:
         retail_brokers=["YP", "CC", "NI"],
         data_source="arjum",
         max_hold_days=30,
+        band_gap_max_pct=0.0,  # no band-gap cap: tuned signal bar fires (generic API path)
     )
     base.update(overrides)
     return BacktestParams(**base)

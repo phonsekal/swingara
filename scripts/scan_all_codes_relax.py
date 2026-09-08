@@ -28,13 +28,13 @@ async def run_all(*, params: ScanParams) -> list[dict]:
     for i, code in enumerate(tickers, 1):
         try:
             v = await analyze_stock(code, params, None)
-            results.append(v.model_dump() if hasattr(v, "model_dump") else v)
+            results.append(v.model_dump() if hasattr(v, 'model_dump') else v)
         except Exception as exc:  # noqa: BLE001
-            results.append({"ticker": code, "verdict": "ERROR", "error": str(exc)})
+            results.append({'ticker': code, 'verdict': 'ERROR', 'error': str(exc)})
         if i % 10 == 0 or i == len(tickers):
-            elapsed = __import__("time").time() - t0
+            elapsed = __import__('time').time() - t0
             print(
-                f\"[{i:>4}/{len(tickers)}] {code:<8} {v.get('verdict') if isinstance(v, dict) else v.verdict}\",
+                f'[{i:>4}/{len(tickers)}] {code:<8} {v.get("verdict") if isinstance(v, dict) else v.verdict}',
                 flush=True,
             )
     print(f\"\\nDone {len(tickers)} tickers in {__import__('time').time() - t0:.0f}s\", flush=True)

@@ -32,6 +32,15 @@ def explain_verdict(result: StockVerdict, params: ScanParams) -> dict:
     ok = "pass"
     fail = "fail"
 
+    # ---- multi-method snapshot ----
+    if result.method_results:
+        passed = [m["method"] for m in result.method_results if m["passed"]]
+        total = len(result.method_results)
+        if passed:
+            points.append({"kind": "info", "text": f"Layer A diuji otomatis dengan {total} metode — lolos: {', '.join(passed)}."})
+        else:
+            points.append({"kind": "info", "text": f"Layer A diuji otomatis dengan {total} metode — tidak ada yang lolos pada snapshot ini."})
+
     # ---- Layer A: teknikal ----
     uptrend = checks.get("uptrend")
     if uptrend:

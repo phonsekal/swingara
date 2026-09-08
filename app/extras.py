@@ -30,7 +30,8 @@ async def fetch_news(code: str, limit: int = 6, timeout: float = 12.0) -> Option
             ticker = yf.Ticker(f"{code}.JK")
             raw = ticker.get_news() or []
         out = []
-        for item in raw[: limit * 2]:
+        # Fetch slightly more than we need so we can sort by date and keep the freshest ones.
+        for item in raw[: limit * 3]:
             content = item.get("content") or {}
             title = content.get("title")
             if not title:
@@ -49,11 +50,12 @@ async def fetch_news(code: str, limit: int = 6, timeout: float = 12.0) -> Option
                     "publisher": provider,
                     "date": date_str,
                     "url": url,
+                    "ts": ts,
                 }
             )
-            if len(out) >= limit:
-                break
-        return out
+        # Sort terbaru dulu, lalu ambil limit terbaru.
+        out.sort(key=lambda x: (x.get("ts") or 0), reverse=True)
+        return [{"title": o["title"], "publisher": o["publisher"], "date": o["date"], "url": o["url"]} for o in out[:limit]]
 
     try:
         return await asyncio.wait_for(asyncio.to_thread(_get), timeout=timeout)
@@ -79,7 +81,7 @@ async def fetch_corp_actions(code: str, limit: int = 6, timeout: float = 10.0) -
         div_col = next((i for i, c in enumerate(cols) if "dividend" in c), None)
         split_col = next((i for i, c in enumerate(cols) if "split" in c), None)
         out = []
-        for idx, row in df.tail(limit * 2).iterrows():
+        for idx, row in df.iterrows():
             date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)
             div = float(row.iloc[div_col]) if div_col is not None else None
             split = float(row.iloc[split_col]) if split_col is not None else None
@@ -92,9 +94,9 @@ async def fetch_corp_actions(code: str, limit: int = 6, timeout: float = 10.0) -
                         "kind": "DIVIDEN" if div else ("STOCK SPLIT" if split else ""),
                     }
                 )
-            if len(out) >= limit:
-                break
-        return out
+        # Sort terbaru dulu, lalu ambil limit terbaru.
+        out.sort(key=lambda c: c.get("date", ""), reverse=True)
+        return out[:limit]
 
     try:
         return await asyncio.wait_for(asyncio.to_thread(_get), timeout=timeout)

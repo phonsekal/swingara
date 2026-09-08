@@ -38,12 +38,14 @@ async def backtest(
     close = np.asarray([c["close"] for c in candles], dtype=float)
     high = np.asarray([c["high"] for c in candles], dtype=float)
     low = np.asarray([c["low"] for c in candles], dtype=float)
+    open_ = np.asarray([c["open"] for c in candles], dtype=float)
     volume = np.asarray([c["volume"] for c in candles], dtype=float)
     dates = [c["date"] for c in candles]
     n = len(close)
 
     ema20 = ta.ema(close, params.ema_period)
     sma50 = ta.sma(close, params.sma_period)
+    ema5 = ta.ema(close, 5)
     _, _, lower = ta.bollinger(close, params.bb_period, params.bb_std)
     rsi14 = ta.rsi(close, 14)
     liq = _rolling_avg_value(close, volume, 20)
@@ -52,19 +54,38 @@ async def backtest(
     touch_any = ta.close_near_lower_band(close, lower, params.touch_window_days)
 
     def signal_at(i: int) -> bool:
+        # Mirror of the live Layer A gate (app/scanner.py:_layer_a): the touch
+        # window counts when a low touched the band recently OR the current bar is
+        # near the band within touch_tolerance_pct; band_gap_max_pct caps how far
+        # the CLOSE may sit above the lower band (the per-method knob).
         if i < max(params.min_history_days, params.sma_period, params.bb_period) - 1:
             return False
         if np.isnan(ema20[i]) or np.isnan(sma50[i]) or np.isnan(lower[i]) or np.isnan(rsi14[i]):
             return False
+        near_band = min(close[i], low[i]) <= lower[i] * (1.0 + params.touch_tolerance_pct / 100.0)
+        touch_ok = bool(touch_any[i] or near_band)
+        band_gap_ok = (
+            params.band_gap_max_pct <= 0
+            or lower[i] <= 0
+            or (close[i] - lower[i]) / lower[i] * 100.0 <= params.band_gap_max_pct
+        )
+        rsi_ok = (params.rsi_max <= 0 or rsi14[i] < params.rsi_max) and rsi14[i] <= 70
+        confirmation_ok = True
+        if params.require_green_day:
+            confirmation_ok = confirmation_ok and close[i] > open_[i]
+        if params.require_close_above_ema5:
+            confirmation_ok = confirmation_ok and np.isfinite(ema5[i]) and close[i] > ema5[i]
         return bool(
             close[i] > ema20[i] > sma50[i]
-            and min(close[i], low[i]) <= lower[i] * (1.0 + params.touch_tolerance_pct / 100.0)
-            and touch_any[i]
+            and near_band
+            and touch_ok
+            and band_gap_ok
             and liq[i] > params.min_liquidity_idr
             and close[i] >= params.min_price
             and (params.max_price is None or close[i] <= params.max_price)
-            and (params.rsi_max <= 0 or rsi14[i] < params.rsi_max)
+            and rsi_ok
             and (params.pullback_pct <= 0 or pull[i] >= params.pullback_pct)
+            and confirmation_ok
         )
 
     # ---- simulation state ----
@@ -78,6 +99,7 @@ async def backtest(
     tp1_done = False
     hold_days = 0
     leg_proceeds = 0.0  # proceeds already realized on the TP1 partial leg
+    trail_peak = 0.0    # highest close since entry (for trailing stop)
 
     trades: list[dict] = []
     curve: list[list] = []
@@ -124,6 +146,7 @@ async def backtest(
         # ---------- exits ----------
         if shares > 0:
             hold_days += 1
+            trail_peak = max(trail_peak, float(close[i]))
 
             if not tp1_done and high[i] >= tp1_price:
                 half = shares // 2
@@ -137,7 +160,9 @@ async def backtest(
                 exit_price, reason = tp2_price, "TP2"
             elif low[i] <= stop:
                 exit_price, reason = stop, "STOP"
-            elif close[i] < lower[i]:
+            elif params.trail_pct > 0 and trail_peak > 0 and close[i] <= trail_peak * (1.0 - params.trail_pct / 100.0):
+                exit_price, reason = close[i], "TRAIL"
+            elif close[i] < (ema20[i] if params.exit_on_ema20_break else lower[i]):
                 exit_price, reason = close[i], "STRUCTURAL"
             elif hold_days >= params.max_hold_days:
                 exit_price, reason = close[i], "TIMEOUT"
@@ -215,6 +240,7 @@ async def backtest(
             "bb_period": params.bb_period,
             "bb_std": params.bb_std,
             "touch_tolerance_pct": params.touch_tolerance_pct,
+            "band_gap_max_pct": params.band_gap_max_pct,
             "rsi_max": params.rsi_max,
             "pullback_pct": params.pullback_pct,
             "min_liquidity_idr": params.min_liquidity_idr,

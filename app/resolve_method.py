@@ -14,46 +14,58 @@ from typing import Optional
 
 from app.models import ScanParams
 
+# Semua metode memakai entry confirmation backtest-backed: pullback harus sudah
+# mulai berbalik (close > EMA5 + hari hijau) — tanpa ini backtest 5 tahun rugi
+# (PF 0.7-0.9); dengan ini zona pullback >= 5% menghasilkan PF 1.1-1.27.
+
 SUPPORTED_METHODS = {
     "strict_strong_buy": {
         "rsi_max": 55.0,
-        "pullback_pct": 4.0,
-        "band_gap_max_pct": 2.0,
+        "pullback_pct": 6.0,
+        "band_gap_max_pct": 4.0,
         "min_price": 100.0,
         "min_liquidity_idr": 5_000_000_000.0,
-        "touch_tolerance_pct": 1.0,
+        "touch_tolerance_pct": 1.5,
         "touch_window_days": 5,
-        "description": "Tight conviction-only output: uptrend + liquid + close within 2% of lower band + RSI <= 55 + pullback >= 4%.",
+        "require_close_above_ema5": True,
+        "require_green_day": True,
+        "description": "Conviction-only: uptrend + pullback >= 6% + low dekat lower band + RSI <= 55 + konfirmasi berbalik (close > EMA5, hari hijau). Sering kosong — hanya setup paling dalam.",
     },
     "buy_quality_tighter": {
         "rsi_max": 60.0,
-        "pullback_pct": 3.0,
-        "band_gap_max_pct": 3.0,
+        "pullback_pct": 5.0,
+        "band_gap_max_pct": 5.0,
         "min_price": 100.0,
         "min_liquidity_idr": 5_000_000_000.0,
-        "touch_tolerance_pct": 1.0,
+        "touch_tolerance_pct": 2.0,
         "touch_window_days": 5,
-        "description": "Quality buy candidates: uptrend + liquid + RSI <= 60 + pullback >= 3% + band gap <= 3%.",
+        "require_close_above_ema5": True,
+        "require_green_day": True,
+        "description": "Quality buy: uptrend + pullback >= 5% + low <= 2% dari lower band + RSI <= 60 + konfirmasi berbalik (PF 1.19, 5 thn, 43 saham).",
     },
     "band_proximity_main": {
         "rsi_max": 65.0,
-        "pullback_pct": 2.0,
-        "band_gap_max_pct": 3.0,
+        "pullback_pct": 5.0,
+        "band_gap_max_pct": 5.0,
         "min_price": 100.0,
         "min_liquidity_idr": 5_000_000_000.0,
-        "touch_tolerance_pct": 1.0,
+        "touch_tolerance_pct": 2.5,
         "touch_window_days": 5,
-        "description": "Main method: lower-band proximity is the central swing idea, with RSI <= 65 and pullback >= 2%.",
+        "require_close_above_ema5": True,
+        "require_green_day": True,
+        "description": "Main method: pullback >= 5% + low <= 2.5% dari lower band + RSI <= 65 + konfirmasi berbalik — sweet spot backtest (PF 1.27, win 50%, 5 thn).",
     },
     "wide_candidate_pool": {
         "rsi_max": 70.0,
-        "pullback_pct": 1.0,
-        "band_gap_max_pct": 4.0,
+        "pullback_pct": 5.0,
+        "band_gap_max_pct": 6.0,
         "min_price": 50.0,
         "min_liquidity_idr": 1_000_000_000.0,
-        "touch_tolerance_pct": 1.0,
+        "touch_tolerance_pct": 2.5,
         "touch_window_days": 5,
-        "description": "Broad candidate pool: lower-priced names allowed, lower liquidity floor, RSI <= 70, pullback >= 1%, band gap <= 4%.",
+        "require_close_above_ema5": True,
+        "require_green_day": True,
+        "description": "Broad candidate pool: pullback >= 5% + low <= 2.5% dari lower band + RSI <= 70, harga murah & likuiditas lebih rendah boleh masuk (PF 1.05).",
     },
 }
 
@@ -105,6 +117,29 @@ def default_method_params(*, method: Optional[str] = None) -> tuple[Optional[Sca
     ), m["description"]
 
 
+def layer_a_method_overrides(name: str) -> Optional[dict]:
+    """Return a flat dict of Layer A knobs for a named method.
+
+    Used by the multi-method scan path to evaluate several philosophies for the
+    same stock without rewriting the Layer A gate (only the knobs change).
+    Returns None for unknown method names.
+    """
+    m = SUPPORTED_METHODS.get(name)
+    if not m:
+        return None
+    return {
+        "rsi_max": m["rsi_max"],
+        "pullback_pct": m["pullback_pct"],
+        "band_gap_max_pct": m["band_gap_max_pct"],
+        "min_price": m["min_price"],
+        "min_liquidity_idr": m["min_liquidity_idr"],
+        "touch_tolerance_pct": m["touch_tolerance_pct"],
+        "touch_window_days": m["touch_window_days"],
+        "require_close_above_ema5": m.get("require_close_above_ema5", False),
+        "require_green_day": m.get("require_green_day", False),
+    }
+
+
 def list_methods() -> dict[str, dict]:
     return {
         name: {
@@ -117,6 +152,8 @@ def list_methods() -> dict[str, dict]:
                 "min_liquidity_idr": m["min_liquidity_idr"],
                 "touch_tolerance_pct": m["touch_tolerance_pct"],
                 "touch_window_days": m["touch_window_days"],
+                "require_close_above_ema5": m.get("require_close_above_ema5", False),
+                "require_green_day": m.get("require_green_day", False),
             },
         }
         for name, m in SUPPORTED_METHODS.items()

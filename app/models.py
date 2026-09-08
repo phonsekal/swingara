@@ -36,7 +36,7 @@ class ScanParams(BaseModel):
     sma_period: int = 50
     bb_period: int = 20
     bb_std: float = 2.0
-    touch_tolerance_pct: float = 1.0
+    touch_tolerance_pct: float = 2.0  # kalibrasi data: gap min(close,low) ke lower band (p25 pasar ~4%)
     touch_window_days: int = 5  # multi-bar confirmation: price touched BB lower within this window
     rsi_max: float = 60.0  # 0 disables
     pullback_pct: float = 3.0  # 0 disables
@@ -50,6 +50,12 @@ class ScanParams(BaseModel):
     # Used by the default method-based scan path to express different swing
     # philosophies without rewriting the whole Layer A gate each time.
     band_gap_max_pct: float = 3.0
+    # --- Entry confirmation (backtest-backed, lihat scripts/backtest_methods.py) ---
+    # Hanya beli saat pullback sudah mulai berbalik: close di atas EMA5 dan hari
+    # hijau. Tanpa ini (entry langsung saat sentuh lower band) backtest 5 tahun
+    # selalu rugi; dengan ini PF 1.1-1.27 di 43 saham likuid.
+    require_close_above_ema5: bool = False
+    require_green_day: bool = False
 
     # --- Layer C ---
     retail_brokers: list[str] = Field(default_factory=lambda: ["YP", "CC", "NI"])
@@ -64,9 +70,11 @@ class ScanParams(BaseModel):
     atr_stop_mult: float = 2.0
     risk_per_trade_pct: float = 2.0
     portfolio_idr: float = 100_000_000.0
+    # broker accumulation tuning (Layer B)
+    broker_top_n_factor: float = 3.0  # broker_limit = max(top_n_brokers * factor, 20)
 
     # --- Universe selection ---
-    universe: Literal["watchlist", "all", "sector", "mapped"] = "watchlist"
+    universe: Literal["watchlist", "all", "sector", "mapped", "all_extra", "mapped_extra"] = "watchlist"
     sector: Optional[str] = None  # used when universe == "sector"
     min_market_cap_idr: float = 3_000_000_000_000.0  # used when universe == "all"
     max_tickers: int = 300  # cap for universe == "all" (serverless 60s window)
@@ -75,6 +83,20 @@ class ScanParams(BaseModel):
     include_seasonality: bool = False  # monthly up/down analysis (multi-year yfinance history)
     include_news: bool = False  # recent news + corp actions per stock (yfinance)
 
+    # --- Multi-method Layer A snapshot (PR: auto multi-method scan) ---
+    multi_method: bool = False  # when True and universe is a group, evaluate several Layer A
+    # philosophies in one scan and return per-method results instead of a single verdict.
+    multi_method_set: list[str] = Field(
+        default_factory=lambda: [
+            "strict_strong_buy",
+            "buy_quality_tighter",
+            "band_proximity_main",
+            "wide_candidate_pool",
+        ]
+    )
+    # --- Charting extras (PR: weekly candle chart + indicators) ---
+    include_chart: bool = False  # weekly candle chart with BB, MACD, EMA5/EMA21
+    chart_years: int = 5
     # --- Data source ---
     # yfinance-first: price history costs 0 arjum quota; arjum is used only for
     # the broker-summary (bandarmology) layer.
@@ -95,10 +117,14 @@ class StockVerdict(BaseModel):
     broker_flow: Optional[dict] = None
     plan: Optional[dict] = None
     error: Optional[str] = None
-    # extras (filled when requested): seasonality / news / corp_actions
+    # extras (filled when requested): seasonality / news / corp_actions / per-method results
     seasonality: Optional[dict] = None
     news: Optional[list] = None
     corp_actions: Optional[list] = None
+    # multi-method result snapshot (when multi_method=True)
+    method_results: Optional[list[dict]] = None
+    # weekly chart data + indicator status (when include_chart=True)
+    chart: Optional[dict] = None
     # plain-language explanation of the verdict (always filled)
     explanation: Optional[dict] = None
 
@@ -123,3 +149,6 @@ class BacktestParams(ScanParams):
     max_hold_days: int = 30
     slippage_pct: float = 0.1
     history_years: int = 5  # multi-year window for a meaningful sample
+    # --- exit-rule variants (backtest only) ---
+    exit_on_ema20_break: bool = False  # structural exit = close < EMA20 (trend invalidation)
+    trail_pct: float = 0.0  # trailing stop from the highest close since entry (0 = off)
