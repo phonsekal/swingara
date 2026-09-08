@@ -269,6 +269,10 @@ async function runScan(){
   msum.innerHTML="";
   msum.classList.add("hidden");
   msum.classList.remove("flex");
+  const bsum=$("#sc-broker-summary");
+  bsum.innerHTML="";
+  bsum.classList.add("hidden");
+  bsum.classList.remove("flex");
   $("#sc-chart").innerHTML="";
   $("#sc-empty").classList.add("hidden");
   Object.assign(trendState,{total:0,done:0,counts:{},rsis:[],pulls:[],vals:[],aPass:0,group:""});
@@ -336,6 +340,19 @@ function handleStreamLine(line){
       const cls=m.pass>0?"bg-emerald-500/15 text-emerald-300 border-emerald-500/40":"bg-slate-700/30 text-slate-400 border-slate-700";
       return `<span class="rounded-full border px-2.5 py-1 font-bold ${cls}" title="${METHOD_LABELS[name]||name}">${METHOD_LABELS[name]||name}: ${m.pass}/${m.total} (${pct}%)</span>`;
     }).join("");
+  }
+  if(line.type==="broker_summary"){
+    const wrap=$("#sc-broker-summary");
+    wrap.classList.remove("hidden");
+    wrap.classList.add("flex");
+    const n=line.n_with_data||0;
+    const smartPct=n?Math.round((line.smart_top_buyer||0)/n*100):0;
+    const retailPct=n?Math.round((line.retail_top_buyer||0)/n*100):0;
+    const topChips=(line.top_brokers||[]).map((b)=>`<span class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-bold ${b.smart?"border-violet-500/40 bg-violet-500/15 text-violet-300":"border-amber-500/40 bg-amber-500/15 text-amber-300"}" title="${b.smart?"Smart money":"Ritel"}">${b.code}${b.smart?"🧠":"🛒"} ${b.n}×</span>`).join("");
+    wrap.innerHTML=`<span class="text-slate-500">Broker (top buyer):</span>`+
+      `<span class="rounded-full border border-violet-500/40 bg-violet-500/15 px-2.5 py-1 font-bold text-violet-300">🧠 Smart money ${line.smart_top_buyer||0}/${n} (${smartPct}%)</span>`+
+      `<span class="rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 font-bold text-amber-300">🛒 Ritel ${line.retail_top_buyer||0}/${n} (${retailPct}%)</span>`+
+      topChips;
   }
   if(line.type==="done"){
     const chips=Object.entries(line.summary.by_verdict)

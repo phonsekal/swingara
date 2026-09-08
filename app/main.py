@@ -355,9 +355,11 @@ async def _scan_stream(request: Request, params: ScanParams):
         ) + "\n"
         counts: dict[str, int] = {}
         method_counts: dict[str, dict] = {}
+        results: list[StockVerdict] = []
         try:
             for coro in asyncio.as_completed([one(c) for c in _tickers]):
                 r = await coro
+                results.append(r)
                 counts[r.verdict] = counts.get(r.verdict, 0) + 1
                 for m in r.method_results or []:
                     name = m["method"]
@@ -370,6 +372,9 @@ async def _scan_stream(request: Request, params: ScanParams):
             await client.close()
         if method_counts:
             yield json.dumps({"type": "method_summary", "methods": method_counts}) + "\n"
+        broker_agg = _aggregate_broker_classification(results)
+        if broker_agg:
+            yield json.dumps({"type": "broker_summary", **broker_agg}) + "\n"
         warnings: list[str] = []
         if not _resolve_key(request):
             warnings.append(
@@ -503,6 +508,42 @@ async def broker_directory_endpoint():
         "explain": broker_explain(),
         "note": "Klasifikasi edukatif & indikatif (bukan daftar resmi BEI/OJK). Afiliasi grup bisa berubah — verifikasi sebelum keputusan investasi.",
     }
+
+
+def _aggregate_broker_classification(results: list[StockVerdict]) -> Optional[dict]:
+    """Agregasi klasifikasi smart money vs ritel dari top buyers semua hasil scan.
+
+    Return None bila tidak ada data broker sama sekali; else dict dengan
+    n_with_data, smart_top_buyer, retail_top_buyer, top_brokers.
+    """
+    agg: dict = {"n_with_data": 0, "smart_top_buyer": 0, "retail_top_buyer": 0}
+    counter: dict[str, dict] = {}
+    for r in results:
+        tb = (r.broker_flow or {}).get("layer_b", {}).get("details", {}).get("top_buyers") or []
+        if not tb:
+            continue
+        agg["n_with_data"] += 1
+        tags = tb[0].get("tags") or []
+        if "smart_money" in tags:
+            agg["smart_top_buyer"] += 1
+        elif "retail" in tags:
+            agg["retail_top_buyer"] += 1
+        for b in tb:
+            code = str(b.get("broker_code", "")).upper()
+            if not code:
+                continue
+            entry = counter.setdefault(
+                code, {"smart": "smart_money" in (b.get("tags") or []), "n": 0}
+            )
+            entry["n"] += 1
+    if not agg["n_with_data"]:
+        return None
+    agg["top_brokers"] = sorted(
+        ({"code": c, **v} for c, v in counter.items()),
+        key=lambda x: x["n"],
+        reverse=True,
+    )[:6]
+    return agg
 
 
 def _broker_filter(rows: list[dict], brokers: Optional[set[str]], top_n: int) -> list[dict]:

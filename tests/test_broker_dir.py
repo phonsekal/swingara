@@ -15,6 +15,7 @@ from app.broker_dir import (
     directory,
 )
 from app.broker_activity import broker_activity
+from app.main import _aggregate_broker_classification
 
 
 def _run_activity(*args):
@@ -131,6 +132,40 @@ def test_broker_activity_empty_when_broker_inactive():
     data = _run_activity(["BBRI"], "SS", 7, client)
     assert data["activities"] == []
     assert data["errors"] == []
+
+
+def _fake_verdict(ticker: str, top_buyers: list[dict]):
+    class R:
+        pass
+
+    r = R()
+    r.ticker = ticker
+    r.verdict = "STRONG_BUY"
+    r.method_results = [{"method": "band_proximity_main", "passed": True, "total": 1}]
+    r.broker_flow = {"layer_b": {"details": {"top_buyers": top_buyers}}}
+    return r
+
+
+def test_aggregate_broker_classification_counts_smart_vs_retail():
+    smart = {"broker_code": "AK", "broker_name": "UBS", "bval": 1, "sval": 0, "nval": 1, "nvol": 1, "tags": ["smart_money"], "category": "Asing", "group": "UBS Group (Swiss)", "issuers": []}
+    retail = {"broker_code": "XC", "broker_name": "Ajaib", "bval": 1, "sval": 0, "nval": 1, "nvol": 1, "tags": ["retail"], "category": "Aplikasi Retail Online", "group": "Ajaib Group", "issuers": []}
+    results = [
+        _fake_verdict("BBRI", [smart]),
+        _fake_verdict("BMRI", [smart]),
+        _fake_verdict("TINS", [retail]),
+    ]
+    agg = _aggregate_broker_classification(results)
+    assert agg is not None
+    assert agg["n_with_data"] == 3
+    assert agg["smart_top_buyer"] == 2
+    assert agg["retail_top_buyer"] == 1
+    assert agg["top_brokers"][0]["code"] == "AK"
+    assert agg["top_brokers"][0]["n"] == 2
+    assert agg["top_brokers"][0]["smart"] is True
+
+
+def test_aggregate_broker_classification_none_without_data():
+    assert _aggregate_broker_classification([_fake_verdict("BBRI", [])]) is None
 
 
 def test_broker_activity_sorts_by_abs_net():
