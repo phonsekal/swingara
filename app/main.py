@@ -506,10 +506,22 @@ async def broker_directory_endpoint():
 
 
 def _broker_filter(rows: list[dict], brokers: Optional[set[str]], top_n: int) -> list[dict]:
+    """Sort by net value, optionally keep only pinned brokers, attach classification."""
     rows = sorted(rows, key=lambda r: float(r.get("nval") or 0.0), reverse=True)
     if brokers is not None:
         rows = [r for r in rows if str(r.get("broker_code", "")).upper() in brokers]
-    return rows[:top_n]
+    out = []
+    for r in rows[:top_n]:
+        info = broker_info(str(r.get("broker_code", ""))) or {}
+        out.append(
+            {
+                **r,
+                "tags": info.get("tags", ["unknown"]),
+                "category": info.get("category_label", "Tidak dikenal"),
+                "group": info.get("group", ""),
+            }
+        )
+    return out
 
 
 @app.get("/brokers/{code}")

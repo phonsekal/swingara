@@ -149,6 +149,22 @@ def test_broker_filter_with_ss_present_passes_layer_b():
     assert verdict.verdict == "MAXIMUM_CONVICTION_BUY", verdict.layers
 
 
+def test_layer_b_broker_rows_have_smart_money_classification():
+    verdict = asyncio.run(analyze_stock("TEST", _params(), FakeArjum()))
+    top_buyers = verdict.layers["b"]["details"]["top_buyers"]
+    assert top_buyers, "top_buyers kosong"
+    codes = {r["broker_code"] for r in top_buyers}
+    # SS (Supra, ritel/lokal) & BK (JP Morgan, smart money) ada di daftar buyer
+    assert "SS" in codes and "BK" in codes
+    by_code = {r["broker_code"]: r for r in top_buyers}
+    # JP Morgan = smart money (asing), Supra = ritel (lokal)
+    assert "smart_money" in by_code["BK"]["tags"]
+    assert "retail" in by_code["SS"]["tags"]
+    assert by_code["BK"]["group"] == "JP Morgan Chase (AS)"
+    # ringkasan smart money buyers dihitung benar (BK + ZP = 2)
+    assert verdict.layers["b"]["details"]["n_smart_money_buyers"] == 2
+
+
 def test_anchor_chase_protection_rejects_overextended_price():
     # Crafted candles: price has run 1000 > vwap(15) ~911 while SS is top buyer.
     candles = [

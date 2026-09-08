@@ -11,6 +11,7 @@ import numpy as np
 
 from . import technicals as ta
 from .arjum import ArjumClient, ArjumAuthError, ArjumError
+from .broker_dir import broker_info
 from .chart import build_weekly_chart
 from .explain import explain_verdict
 from .extras import fetch_corp_actions, fetch_news
@@ -252,17 +253,25 @@ def _layer_bc(
         b_detail["details"] = {"reason": "broker_summary kosong"}
         return b_detail, c_detail
 
-    rows = [
-        {
-            "broker_code": str(b.get("broker_code", "")).upper(),
-            "broker_name": b.get("broker_name", ""),
-            "bval": float(b.get("bval") or 0.0),
-            "sval": float(b.get("sval") or 0.0),
-            "nval": float(b.get("nval") or 0.0),
-            "nvol": float(b.get("nvol") or 0.0),
-        }
-        for b in brokers
-    ]
+    rows = []
+    for b in brokers:
+        code = str(b.get("broker_code", "")).upper()
+        info = broker_info(code) or {}
+        rows.append(
+            {
+                "broker_code": code,
+                "broker_name": b.get("broker_name", ""),
+                "bval": float(b.get("bval") or 0.0),
+                "sval": float(b.get("sval") or 0.0),
+                "nval": float(b.get("nval") or 0.0),
+                "nvol": float(b.get("nvol") or 0.0),
+                # klasifikasi bandarmologi: smart money vs retail + grup afiliasi
+                "tags": info.get("tags", ["unknown"]),
+                "category": info.get("category_label", "Tidak dikenal"),
+                "group": info.get("group", ""),
+                "issuers": info.get("issuers", []),
+            }
+        )
 
     # Rank buyers (positive net) and sellers (most negative net)
     by_nval = sorted(rows, key=lambda r: r["nval"], reverse=True)
@@ -297,12 +306,15 @@ def _layer_bc(
     anchor_ok = bool(price <= anchor * (1.0 + params.price_anchor_pct / 100.0))
 
     b_pass = bool(matched) and anchor_ok
+    smart_money_buyers = [r for r in top_buyers if "smart_money" in r.get("tags", [])]
     b_detail = {
         "status": "pass" if b_pass else "fail",
         "details": {
             "match_rule": match_rule,
             "top_buyers": top_buyers[: params.top_n_brokers],
             "matched_brokers": matched,
+            "smart_money_buyers": smart_money_buyers[: params.top_n_brokers],
+            "n_smart_money_buyers": len(smart_money_buyers),
             "anchor_mode": params.anchor_mode,
             "lookback_days": lookback,
             "buy_avg_anchor": round(anchor, 0) if anchor == anchor else None,

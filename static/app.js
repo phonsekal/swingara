@@ -560,15 +560,20 @@ function verdictCard(r){
     ["ATR(14)",fmt(t.atr14)],
   ];
   const bDetail=(bf.layer_b&&bf.layer_b.details)||{};
+  const brokerChip=(b)=>`<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-bold ${b.tags&&b.tags.includes("smart_money")?"bg-violet-500/20 text-violet-300":"bg-amber-500/20 text-amber-300"}" title="${b.category||""}${b.group?" · "+b.group:""}${b.issuers&&b.issuers.length?" · emiten: "+b.issuers.join(","):""}">${b.broker_code}${b.tags&&b.tags.includes("smart_money")?"🧠":"🛒"}</span>`;
+  const topBuyerChips=((bDetail.top_buyers)||[]).slice(0,3).map(brokerChip).join(" ")||"—";
+  const smCount=bDetail.n_smart_money_buyers!=null?bDetail.n_smart_money_buyers:((bDetail.smart_money_buyers||[]).length);
   const bRows=[
-    ["Top Buyer",((bf.layer_b&&bf.layer_b.details&&bf.layer_b.details.top_buyers)||[]).slice(0,3).map((b)=>b.broker_code).join(", ")||"—"],
+    ["Top Buyer",topBuyerChips],
+    ["Smart Money",smCount>0?`<span class="font-bold text-violet-300">🧠 ${smCount} dari ${((bDetail.top_buyers)||[]).length}</span>`:"—"],
     ["Matched",matchedTxt],
     ["Anchor (VWAP)",fmt(bDetail.buy_avg_anchor)],
     ["Buffer",bDetail.anchor_buffer_pct!=null?bDetail.anchor_buffer_pct+"%":"—"],
     ["Status B",bStatus],
   ];
+  const topSellerChips=((bf.layer_c&&bf.layer_c.details&&bf.layer_c.details.top_sellers)||[]).slice(0,3).map(brokerChip).join(" ")||"—";
   const cRows=[
-    ["Top Seller",((bf.layer_c&&bf.layer_c.details&&bf.layer_c.details.top_sellers)||[]).slice(0,3).map((b)=>b.broker_code).join(", ")||"—"],
+    ["Top Seller",topSellerChips],
     ["Retail share",bf.layer_c&&bf.layer_c.details&&bf.layer_c.details.retail_share_of_net_sell!=null
       ?(bf.layer_c.details.retail_share_of_net_sell*100).toFixed(1)+"%":"—"],
     ["Status C",cStatus],
@@ -630,13 +635,16 @@ async function runBroker(){
   try{
     const d=await api(`/brokers/${code}?${q}`);
     const rows=d.brokers||[];
-    const head=["Broker","Nama","Buy (Rp)","Sell (Rp)","Net (Rp)","Net Vol","Matched?"];
+    const head=["Broker","Nama","Klasifikasi","Buy (Rp)","Sell (Rp)","Net (Rp)","Net Vol","Matched?"];
     const trs=rows.map((b)=>{
       const net=b.nval||0;
       const cls=net>0?"text-emerald-300":net<0?"text-rose-300":"text-slate-400";
+      const isSmart=(b.tags||[]).includes("smart_money");
+      const klass=(b.tags&&b.tags.length)?`<span class="rounded px-1.5 py-0.5 text-[10px] font-bold ${isSmart?"bg-violet-500/20 text-violet-300":"bg-amber-500/20 text-amber-300"}" title="${b.category||""}${b.group?" · "+b.group:""}">${isSmart?"🧠 SMART":"🛒 RITEL"}</span>`:"—";
       return `<tr class="border-b border-slate-800 hover:bg-slate-800/40">
         <td class="px-3 py-2 font-mono font-bold">${b.broker_code}</td>
         <td class="px-3 py-2 text-slate-400">${b.broker_name||""}</td>
+        <td class="px-3 py-2">${klass}</td>
         <td class="px-3 py-2 font-mono text-right">${fmt(b.bval)}</td>
         <td class="px-3 py-2 font-mono text-right">${fmt(b.sval)}</td>
         <td class="px-3 py-2 font-mono text-right font-bold ${cls}">${net>0?"+":""}${fmt(net)}</td>
@@ -647,7 +655,7 @@ async function runBroker(){
     $("#br-table-wrap").innerHTML=`
       <table class="w-full text-sm">
         <thead><tr class="text-left text-xs uppercase text-slate-500">${head.map((h)=>`<th class="px-3 py-2">${h}</th>`).join("")}</tr></thead>
-        <tbody>${trs||`<tr><td colspan="7" class="px-3 py-4 text-center text-slate-500">Tidak ada data</td></tr>`}</tbody>
+        <tbody>${trs||`<tr><td colspan="8" class="px-3 py-4 text-center text-slate-500">Tidak ada data</td></tr>`}</tbody>
       </table>`;
     $("#br-meta").innerHTML=
       `${d.stock_code} · ${d.broker_start||"?"} → ${d.broker_end||"?"} · filter: ${d.filter.brokers?d.filter.brokers.join(","):"semua"} · `+
