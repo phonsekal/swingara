@@ -53,17 +53,23 @@ async def resolve_tickers(
     if params.universe in ("all", "all_extra"):
         if client is None:
             raise HTTPException(status_code=400, detail=f"universe={params.universe} perlu client arjum (API key)")
-        # fetch the whole list once (cached 6h), then split: top-N is the primary
-        # group, everything after it is the "kelompok ke-2" (sisa saham).
-        uni = await fetch_universe(
-            client,
-            min_market_cap_idr=params.min_market_cap_idr,
-            max_tickers=params.max_tickers + 5000,
-        )
+        # "all": top-N terbesar (filter market cap tetap); "all_extra": SEMUA
+        # saham IDX di luar top-N — fetch universe penuh (cap >= 0) supaya
+        # kelompok ke-2 benar-benar berisi sisa pasar, bukan sisa dari filter 3T.
         if params.universe == "all":
+            uni = await fetch_universe(
+                client,
+                min_market_cap_idr=params.min_market_cap_idr,
+                max_tickers=params.max_tickers + 5000,
+            )
             tickers = [u["code"] for u in uni[: params.max_tickers]]
             return tickers, f"all({len(tickers)})"
-        tickers = [u["code"] for u in uni[params.max_tickers:]]
+        uni_full = await fetch_universe(
+            client,
+            min_market_cap_idr=0.0,
+            max_tickers=params.max_tickers + 5000,
+        )
+        tickers = [u["code"] for u in uni_full[params.max_tickers:]]
         return tickers, f"all_extra({len(tickers)})"
 
     if params.universe in ("mapped", "mapped_extra"):
@@ -72,9 +78,11 @@ async def resolve_tickers(
         # sisa mapped universe yang tidak masuk kelompok top-N "all".
         if client is None:
             raise HTTPException(status_code=400, detail="universe=mapped_extra perlu client arjum (API key)")
+        # Top-N ditentukan dari universe PENUH (bukan dari filter 3T) agar sisa
+        # mapped yang dianggap "kelompok ke-2" konsisten dengan all_extra.
         uni = await fetch_universe(
             client,
-            min_market_cap_idr=params.min_market_cap_idr,
+            min_market_cap_idr=0.0,
             max_tickers=params.max_tickers + 5000,
         )
         top = {u["code"] for u in uni[: params.max_tickers]}

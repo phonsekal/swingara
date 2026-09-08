@@ -18,54 +18,61 @@ from app.models import ScanParams
 # mulai berbalik (close > EMA5 + hari hijau) — tanpa ini backtest 5 tahun rugi
 # (PF 0.7-0.9); dengan ini zona pullback >= 5% menghasilkan PF 1.1-1.27.
 
+# Kalibrasi ulang (Sep 2026, backtest 5 thn, 30 saham likuid): pullback >= 5%
+# terlalu ketat untuk pasar uptrend kuat — scan nyaris kosong (median pullback
+# pasar hanya ~3%). Turunkan pullback ke 3.5-4.5% dan longgarkan toleransi
+# sentuh lower band (3.5-4%) sambil menjaga batas gap close tetap ketat (4-6%):
+#   main pull3.5 tol4  gap5  PF 1.06 · kualitas pull4 tol3.5 gap5 PF 1.17
+#   wide  pull4  tol3.5 gap6  PF 1.12 · strict  pull4.5 tol2.5 gap4 PF 1.25
+
 SUPPORTED_METHODS = {
     "strict_strong_buy": {
         "rsi_max": 55.0,
-        "pullback_pct": 6.0,
+        "pullback_pct": 4.5,
         "band_gap_max_pct": 4.0,
         "min_price": 100.0,
         "min_liquidity_idr": 5_000_000_000.0,
-        "touch_tolerance_pct": 1.5,
+        "touch_tolerance_pct": 2.5,
         "touch_window_days": 5,
         "require_close_above_ema5": True,
         "require_green_day": True,
-        "description": "Conviction-only: uptrend + pullback >= 6% + low dekat lower band + RSI <= 55 + konfirmasi berbalik (close > EMA5, hari hijau). Sering kosong — hanya setup paling dalam.",
+        "description": "Conviction-only: uptrend + pullback >= 4.5% + low dekat lower band + RSI <= 55 + konfirmasi berbalik (close > EMA5, hari hijau). Paling ketat — hanya setup dalam (PF 1.25, 5 thn).",
     },
     "buy_quality_tighter": {
         "rsi_max": 60.0,
-        "pullback_pct": 5.0,
+        "pullback_pct": 4.0,
         "band_gap_max_pct": 5.0,
         "min_price": 100.0,
         "min_liquidity_idr": 5_000_000_000.0,
-        "touch_tolerance_pct": 2.0,
+        "touch_tolerance_pct": 3.5,
         "touch_window_days": 5,
         "require_close_above_ema5": True,
         "require_green_day": True,
-        "description": "Quality buy: uptrend + pullback >= 5% + low <= 2% dari lower band + RSI <= 60 + konfirmasi berbalik (PF 1.19, 5 thn, 43 saham).",
+        "description": "Quality buy: uptrend + pullback >= 4% + low <= 3.5% dari lower band + RSI <= 60 + konfirmasi berbalik (PF 1.17, 5 thn, 30 saham).",
     },
     "band_proximity_main": {
         "rsi_max": 65.0,
-        "pullback_pct": 5.0,
+        "pullback_pct": 3.5,
         "band_gap_max_pct": 5.0,
         "min_price": 100.0,
         "min_liquidity_idr": 5_000_000_000.0,
-        "touch_tolerance_pct": 2.5,
+        "touch_tolerance_pct": 4.0,
         "touch_window_days": 5,
         "require_close_above_ema5": True,
         "require_green_day": True,
-        "description": "Main method: pullback >= 5% + low <= 2.5% dari lower band + RSI <= 65 + konfirmasi berbalik — sweet spot backtest (PF 1.27, win 50%, 5 thn).",
+        "description": "Main method: pullback >= 3.5% + low <= 4% dari lower band + RSI <= 65 + konfirmasi berbalik — sweet spot (PF 1.06, win 48%, 5 thn).",
     },
     "wide_candidate_pool": {
         "rsi_max": 70.0,
-        "pullback_pct": 5.0,
+        "pullback_pct": 4.0,
         "band_gap_max_pct": 6.0,
         "min_price": 50.0,
         "min_liquidity_idr": 1_000_000_000.0,
-        "touch_tolerance_pct": 2.5,
+        "touch_tolerance_pct": 3.5,
         "touch_window_days": 5,
         "require_close_above_ema5": True,
         "require_green_day": True,
-        "description": "Broad candidate pool: pullback >= 5% + low <= 2.5% dari lower band + RSI <= 70, harga murah & likuiditas lebih rendah boleh masuk (PF 1.05).",
+        "description": "Broad candidate pool: pullback >= 4% + low <= 3.5% dari lower band + RSI <= 70, harga murah & likuiditas lebih rendah boleh masuk (PF 1.12).",
     },
 }
 
